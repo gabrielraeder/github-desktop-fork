@@ -16,6 +16,8 @@ import { showOpenDialog } from '../main-process-proxy'
 import { Ref } from '../lib/ref'
 import { InputError } from '../lib/input-description/input-error'
 import { IAccessibleMessage } from '../../models/accessible-message'
+import { Checkbox, CheckboxValue } from '../lib/checkbox'
+import { findRepositories } from '../../lib/find-repositories'
 
 interface IAddExistingRepositoryProps {
   readonly dispatcher: Dispatcher
@@ -43,6 +45,16 @@ interface IAddExistingRepositoryState {
   readonly isRepositoryUnsafe: boolean
   readonly repositoryUnsafePath?: string
   readonly isTrustingRepository: boolean
+
+  /**
+   * Whether to add all the repositories found inside the chosen folder rather
+   * than the folder itself.
+   */
+  readonly searchSubfolders: boolean
+  readonly isSearchingSubfolders: boolean
+
+  /** Shown when searching the chosen folder didn't find any repositories */
+  readonly noRepositoriesFoundPath?: string
 }
 
 /** The component for adding an existing local repository. */
@@ -63,6 +75,8 @@ export class AddExistingRepository extends React.Component<
       isRepositoryBare: false,
       isRepositoryUnsafe: false,
       isTrustingRepository: false,
+      searchSubfolders: false,
+      isSearchingSubfolders: false,
     }
   }
 
@@ -82,7 +96,7 @@ export class AddExistingRepository extends React.Component<
   }
 
   private async updatePath(path: string) {
-    this.setState({ path })
+    this.setState({ path, noRepositoriesFoundPath: undefined })
   }
 
   private async validatePath(path: string): Promise<boolean> {
@@ -191,23 +205,47 @@ export class AddExistingRepository extends React.Component<
           <LinkButton onClick={this.onCreateRepositoryClicked}>
             create a repository
           </LinkButton>{' '}
-          here instead?
+          here, or{' '}
+          <LinkButton onClick={this.onSearchSubfoldersClicked}>
+            add the repositories inside it
+          </LinkButton>{' '}
+          instead?
         </p>
       </>
     )
 
     const screenReaderMessage =
-      'This directory does not appear to be a Git repository. Would you like to create a repository here instead?'
+      'This directory does not appear to be a Git repository. Would you like to create a repository here, or add the repositories inside it instead?'
 
     return { screenReaderMessage, displayedMessage }
   }
 
-  private renderErrors() {
-    const msg: IAccessibleMessage | null =
-      this.buildBareRepositoryError() ??
-      this.buildRepositoryUnsafeError() ??
-      this.buildNotAGitRepositoryError()
+  private buildNoRepositoriesFoundError(): IAccessibleMessage | null {
+    const { noRepositoriesFoundPath, path } = this.state
+    if (
+      noRepositoriesFoundPath === undefined ||
+      noRepositoriesFoundPath !== path
+    ) {
+      return null
+    }
 
+    const msg = 'No Git repositories were found inside this directory.'
+    return { screenReaderMessage: msg, displayedMessage: msg }
+  }
+
+  private renderErrors() {
+    if (this.state.searchSubfolders) {
+      return this.renderMessage(this.buildNoRepositoriesFoundError())
+    }
+
+    return this.renderMessage(
+      this.buildBareRepositoryError() ??
+        this.buildRepositoryUnsafeError() ??
+        this.buildNotAGitRepositoryError()
+    )
+  }
+
+  private renderMessage(msg: IAccessibleMessage | null) {
     if (msg === null) {
       return null
     }
@@ -231,7 +269,9 @@ export class AddExistingRepository extends React.Component<
         title={__DARWIN__ ? 'Add Local Repository' : 'Add local repository'}
         onSubmit={this.addRepository}
         onDismissed={this.props.onDismissed}
-        loading={this.state.isTrustingRepository}
+        loading={
+          this.state.isTrustingRepository || this.state.isSearchingSubfolders
+        }
       >
         <DialogContent>
           <Row>
@@ -245,16 +285,45 @@ export class AddExistingRepository extends React.Component<
             />
             <Button onClick={this.showFilePicker}>Choose…</Button>
           </Row>
+          <Row>
+            <Checkbox
+              label="Add all repositories found inside this folder"
+              value={
+                this.state.searchSubfolders
+                  ? CheckboxValue.On
+                  : CheckboxValue.Off
+              }
+              onChange={this.onSearchSubfoldersChanged}
+            />
+          </Row>
           {this.renderErrors()}
         </DialogContent>
 
         <DialogFooter>
           <OkCancelButtonGroup
-            okButtonText={__DARWIN__ ? 'Add Repository' : 'Add repository'}
+            okButtonText={
+              this.state.searchSubfolders
+                ? __DARWIN__
+                  ? 'Add Repositories'
+                  : 'Add repositories'
+                : __DARWIN__
+                ? 'Add Repository'
+                : 'Add repository'
+            }
           />
         </DialogFooter>
       </Dialog>
     )
+  }
+
+  private onSearchSubfoldersChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.setState({ searchSubfolders: event.currentTarget.checked })
+  }
+
+  private onSearchSubfoldersClicked = () => {
+    this.setState({ searchSubfolders: true })
   }
 
   private onPathChanged = async (path: string) => {
@@ -280,6 +349,10 @@ export class AddExistingRepository extends React.Component<
   }
 
   private addRepository = async () => {
+    if (this.state.searchSubfolders) {
+      return this.addRepositoriesInFolder()
+    }
+
     const { path } = this.state
     const isValidPath = await this.validatePath(path)
 
@@ -297,6 +370,36 @@ export class AddExistingRepository extends React.Component<
     if (repositories.length > 0) {
       dispatcher.closeFoldout(FoldoutType.Repository)
       dispatcher.selectRepository(repositories[0])
+      dispatcher.recordAddExistingRepository()
+    }
+  }
+
+  private addRepositoriesInFolder = async () => {
+    const { path } = this.state
+
+    if (path.length === 0) {
+      this.pathTextBoxRef.current?.focus()
+      return
+    }
+
+    this.setState({ isSearchingSubfolders: true })
+    const paths = await findRepositories(this.resolvedPath(path))
+    this.setState({ isSearchingSubfolders: false })
+
+    if (paths.length === 0) {
+      this.setState({ noRepositoriesFoundPath: path })
+      this.pathTextBoxRef.current?.focus()
+      return
+    }
+
+    this.props.onDismissed()
+    const { dispatcher } = this.props
+
+    const repositories = await dispatcher.addRepositories(paths)
+
+    if (repositories.length > 0) {
+      dispatcher.selectRepository(repositories[0])
+      dispatcher.showFoldout({ type: FoldoutType.Repository })
       dispatcher.recordAddExistingRepository()
     }
   }
