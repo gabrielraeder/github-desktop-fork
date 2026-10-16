@@ -1,3 +1,4 @@
+import './set-user-data-path'
 import '../lib/logging/main/install'
 
 import {
