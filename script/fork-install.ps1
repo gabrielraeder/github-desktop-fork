@@ -61,6 +61,14 @@ $built = Get-FileHash (Join-Path $dist 'resources\app\renderer.js')
 $installed = Get-FileHash (Join-Path $installDirFull 'resources\app\renderer.js')
 if ($built.Hash -ne $installed.Hash) { throw 'The installed files do not match the build.' }
 
-$version = (Get-Item (Join-Path $installDirFull 'GitHubDesktop.exe')).VersionInfo.ProductVersion
+# Windows caches the app name shown in the taskbar per executable path, so
+# drop the cached values to pick up any change in the new build.
+$muiCache = 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
+$exe = Join-Path $installDirFull 'GitHubDesktop.exe'
+foreach ($suffix in '.FriendlyAppName', '.ApplicationCompany') {
+  Remove-ItemProperty -Path $muiCache -Name "$exe$suffix" -ErrorAction SilentlyContinue
+}
+
+$version = (Get-Item $exe).VersionInfo.ProductVersion
 Write-Host "Installed GitHub Desktop $version to $installDirFull" -ForegroundColor Green
 $global:LASTEXITCODE = 0

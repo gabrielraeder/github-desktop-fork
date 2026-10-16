@@ -258,8 +258,10 @@ async function packageApp() {
     // Windows
     win32metadata: {
       CompanyName: getCompanyName(),
-      FileDescription: '',
-      OriginalFilename: '',
+      // Windows shows the file description as the app's name in places like
+      // the taskbar jump list, and falls back to "Electron" when it's empty.
+      FileDescription: getProductName(),
+      OriginalFilename: `${getExecutableName()}.exe`,
       ProductName: getProductName(),
       InternalName: getProductName(),
     },
