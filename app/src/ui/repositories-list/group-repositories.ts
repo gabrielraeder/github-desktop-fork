@@ -4,7 +4,7 @@ import {
   nameOf,
   isRepositoryWithGitHubRepository,
   RepositoryWithGitHubRepository,
-  getFavoriteKey,
+  getRepositoryKey,
 } from '../../models/repository'
 import { CloningRepository } from '../../models/cloning-repository'
 import { getHTMLURL } from '../../lib/api'
@@ -14,6 +14,11 @@ import { IAheadBehind } from '../../models/branch'
 import { assertNever } from '../../lib/fatal-error'
 import { isDotCom } from '../../lib/endpoint-capabilities'
 import { Owner } from '../../models/owner'
+import {
+  getCustomGroupFor,
+  ICustomRepositoryGroups,
+  NoCustomRepositoryGroups,
+} from '../../models/custom-repository-group'
 
 export type RepositoryListGroup =
   | {
@@ -27,11 +32,16 @@ export type RepositoryListGroup =
       kind: 'enterprise'
       host: string
     }
+  | {
+      kind: 'custom'
+      id: string
+      name: string
+    }
 
 /**
- * Returns a unique grouping key (string) for a repository group. Doubles as a
- * case sensitive sorting key (i.e the case sensitive sort order of the keys is
- * the order in which the groups will be displayed in the repository list).
+ * Returns a unique grouping key (string) for a repository group. Except for
+ * custom groups, it doubles as a case sensitive sorting key (see
+ * `getGroupSortKey`).
  */
 export const getGroupKey = (group: RepositoryListGroup) => {
   const { kind } = group
@@ -40,6 +50,8 @@ export const getGroupKey = (group: RepositoryListGroup) => {
       return `0:favorite`
     case 'recent':
       return `0:recent`
+    case 'custom':
+      return `0:x-custom:${group.id}`
     case 'dotcom':
       return `1:dotcom:${group.owner.login}`
     case 'enterprise':
@@ -50,6 +62,17 @@ export const getGroupKey = (group: RepositoryListGroup) => {
       assertNever(group, `Unknown repository group kind ${kind}`)
   }
 }
+
+/**
+ * Returns a key whose case sensitive sort order is the order in which the
+ * groups are displayed: favorites, recent, custom groups by name, GitHub.com
+ * owners, Enterprise hosts and finally everything else.
+ */
+const getGroupSortKey = (group: RepositoryListGroup) =>
+  group.kind === 'custom'
+    ? `0:x-custom:${group.name.toLowerCase()}:${group.id}`
+    : getGroupKey(group)
+
 export type Repositoryish = Repository | CloningRepository
 
 export interface IRepositoryListItem extends IFilterListItem {
@@ -66,7 +89,17 @@ const recentRepositoriesThreshold = 7
 const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
   new URL(getHTMLURL(repo.gitHubRepository.endpoint)).host
 
-const getGroupForRepository = (repo: Repositoryish): RepositoryListGroup => {
+const getGroupForRepository = (
+  repo: Repositoryish,
+  customGroups: ICustomRepositoryGroups
+): RepositoryListGroup => {
+  if (repo instanceof Repository) {
+    const custom = getCustomGroupFor(customGroups, getRepositoryKey(repo))
+    if (custom !== undefined) {
+      return { kind: 'custom', id: custom.id, name: custom.name }
+    }
+  }
+
   if (repo instanceof Repository && isRepositoryWithGitHubRepository(repo)) {
     return isDotCom(repo.gitHubRepository.endpoint)
       ? { kind: 'dotcom', owner: repo.gitHubRepository.owner }
@@ -81,7 +114,8 @@ export function groupRepositories(
   repositories: ReadonlyArray<Repositoryish>,
   localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
   recentRepositories: ReadonlyArray<number>,
-  favoriteRepositories: ReadonlyArray<string> = []
+  favoriteRepositories: ReadonlyArray<string> = [],
+  customGroups: ICustomRepositoryGroups = NoCustomRepositoryGroups
 ): ReadonlyArray<IFilterListGroup<IRepositoryListItem, RepositoryListGroup>> {
   const includeRecentGroup = repositories.length > recentRepositoriesThreshold
   const recentSet = includeRecentGroup ? new Set(recentRepositories) : undefined
@@ -100,7 +134,7 @@ export function groupRepositories(
   }
 
   for (const repo of repositories) {
-    if (repo instanceof Repository && favoriteSet.has(getFavoriteKey(repo))) {
+    if (repo instanceof Repository && favoriteSet.has(getRepositoryKey(repo))) {
       addToGroup({ kind: 'favorite' }, repo)
     }
 
@@ -108,12 +142,12 @@ export function groupRepositories(
       addToGroup({ kind: 'recent' }, repo)
     }
 
-    addToGroup(getGroupForRepository(repo), repo)
+    addToGroup(getGroupForRepository(repo, customGroups), repo)
   }
 
-  return Array.from(groups)
-    .sort(([xKey], [yKey]) => compare(xKey, yKey))
-    .map(([, { group, repos }]) => ({
+  return Array.from(groups.values())
+    .sort((x, y) => compare(getGroupSortKey(x.group), getGroupSortKey(y.group)))
+    .map(({ group, repos }) => ({
       identifier: group,
       items: toSortedListItems(
         group,
@@ -166,13 +200,15 @@ const toSortedListItems = (
         id: r.id.toString(),
         repository: r,
         needsDisambiguation:
-          // If the repository is in the enterprise group and has a duplicate
-          // name in the group, we need to disambiguate it. We don't have to
+          // If the repository is in the enterprise or a custom group and has a
+          // duplicate name in the group, we need to disambiguate it. We don't
+          // have to
           // disambiguate repositories in the 'dotcom' group because they are
           // already grouped by owner. If the repository is in the 'recent'
           // or 'favorite' group and has a duplicate name in any group, we need
           // to disambiguate it.
-          ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
+          ((groupNames.get(title) ?? 0) > 1 &&
+            (group.kind === 'enterprise' || group.kind === 'custom')) ||
           ((allNames.get(title) ?? 0) > 1 &&
             (group.kind === 'recent' || group.kind === 'favorite')),
         aheadBehind: repoState?.aheadBehind ?? null,

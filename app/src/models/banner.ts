@@ -18,9 +18,15 @@ export enum BannerType {
   ConflictsFound = 'ConflictsFound',
   OSVersionNoLongerSupported = 'OSVersionNoLongerSupported',
   RemovedMissingRepositories = 'RemovedMissingRepositories',
+  Notice = 'Notice',
 }
 
 export type Banner =
+  | {
+      /** A short informational message */
+      readonly type: BannerType.Notice
+      readonly message: string
+    }
   | {
       readonly type: BannerType.RemovedMissingRepositories
       /** paths of the repositories removed because their folder is gone */

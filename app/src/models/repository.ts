@@ -163,13 +163,14 @@ export interface ILocalRepositoryState {
  * otherwise the folder name that contains the repository
  */
 /**
- * Returns the key a repository is stored under in the list of favorites.
+ * Returns the key that per-repository preferences, such as favorites and
+ * custom groups, are stored under.
  *
- * Favorites are keyed by path rather than id so that they survive removing a
+ * They are keyed by path rather than id so that they survive removing a
  * repository and adding it again. The main worktree path is used when known
  * because switching to a linked worktree changes the repository's `path`.
  */
-export function getFavoriteKey(repository: Repository): string {
+export function getRepositoryKey(repository: Repository): string {
   return repository.mainWorktreePath ?? repository.path
 }
 

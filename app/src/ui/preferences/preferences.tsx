@@ -120,6 +120,7 @@ interface IPreferencesProps {
   readonly copilotAppPath: string | null
   readonly repositoryIndicatorsEnabled: boolean
   readonly autoRemoveMissingRepositories: boolean
+  readonly watchedRepositoryFolders: ReadonlyArray<string>
   readonly onEditGlobalGitConfig: () => void
   readonly underlineLinks: boolean
   readonly showDiffCheckMarks: boolean
@@ -176,6 +177,7 @@ interface IPreferencesState {
   readonly existingLockFilePath?: string
   readonly repositoryIndicatorsEnabled: boolean
   readonly autoRemoveMissingRepositories: boolean
+  readonly watchedRepositoryFolders: ReadonlyArray<string>
 
   readonly initiallySelectedTheme: ApplicationTheme
   readonly initiallySelectedTabSize: number
@@ -256,6 +258,7 @@ export class Preferences extends React.Component<
       selectedShell: this.props.selectedShell,
       repositoryIndicatorsEnabled: this.props.repositoryIndicatorsEnabled,
       autoRemoveMissingRepositories: this.props.autoRemoveMissingRepositories,
+      watchedRepositoryFolders: this.props.watchedRepositoryFolders,
       initiallySelectedTheme: this.props.selectedTheme,
       initiallySelectedTabSize: this.props.selectedTabSize,
       alwaysShowWorktreeList: this.props.alwaysShowWorktreeList,
@@ -761,6 +764,8 @@ export class Preferences extends React.Component<
             onAutoRemoveMissingRepositoriesChanged={
               this.onAutoRemoveMissingRepositoriesChanged
             }
+            watchedRepositoryFolders={this.state.watchedRepositoryFolders}
+            onStopWatchingFolder={this.onStopWatchingFolder}
           />
         )
         break
@@ -794,6 +799,14 @@ export class Preferences extends React.Component<
     repositoryIndicatorsEnabled: boolean
   ) => {
     this.setState({ repositoryIndicatorsEnabled })
+  }
+
+  private onStopWatchingFolder = (path: string) => {
+    this.setState(state => ({
+      watchedRepositoryFolders: state.watchedRepositoryFolders.filter(
+        f => f !== path
+      ),
+    }))
   }
 
   private onAutoRemoveMissingRepositoriesChanged = (
@@ -1096,6 +1109,12 @@ export class Preferences extends React.Component<
         dispatcher.setAutoRemoveMissingRepositories(
           this.state.autoRemoveMissingRepositories
         )
+      }
+
+      for (const folder of this.props.watchedRepositoryFolders) {
+        if (!this.state.watchedRepositoryFolders.includes(folder)) {
+          dispatcher.removeWatchedRepositoryFolder(folder)
+        }
       }
 
       if (this.state.hooksPreferencesDirty) {

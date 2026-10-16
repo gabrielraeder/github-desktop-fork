@@ -12,6 +12,7 @@ import type {
   ICopilotSkippedFile,
 } from './copilot-conflict-resolution'
 import { Account } from '../models/account'
+import { ICustomRepositoryGroups } from '../models/custom-repository-group'
 import { CommitIdentity } from '../models/commit-identity'
 import { IDiff, ImageDiffType } from '../models/diff'
 import { Repository, ILocalRepositoryState } from '../models/repository'
@@ -103,9 +104,15 @@ export interface IAppState {
   readonly recentRepositories: ReadonlyArray<number>
 
   /**
-   * The repositories the user has marked as favorites, see `getFavoriteKey`
+   * The repositories the user has marked as favorites, see `getRepositoryKey`
    */
   readonly favoriteRepositories: ReadonlyArray<string>
+
+  /** The user's custom repository groups */
+  readonly customRepositoryGroups: ICustomRepositoryGroups
+
+  /** Folders searched for new repositories to add automatically */
+  readonly watchedRepositoryFolders: ReadonlyArray<string>
 
   /**
    * A cache of the latest repository state values, keyed by the repository id

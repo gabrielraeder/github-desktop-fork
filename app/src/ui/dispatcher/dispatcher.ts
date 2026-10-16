@@ -868,6 +868,42 @@ export class Dispatcher {
     })
   }
 
+  /** Create a custom repository group, optionally moving a repository in. */
+  public createRepositoryGroup(name: string, repository?: Repository) {
+    return this.appStore._createRepositoryGroup(name, repository)
+  }
+
+  public renameRepositoryGroup(id: string, name: string) {
+    return this.appStore._renameRepositoryGroup(id, name)
+  }
+
+  /** Delete a custom group, moving its repositories back to their group. */
+  public deleteRepositoryGroup(id: string) {
+    return this.appStore._deleteRepositoryGroup(id)
+  }
+
+  /** Move a repository into a custom group, or out of it when null. */
+  public setRepositoryGroup(repository: Repository, groupId: string | null) {
+    return this.appStore._setRepositoryGroup(repository, groupId)
+  }
+
+  /** Fetch all the given repositories in the background. */
+  public fetchRepositories(
+    repositories: ReadonlyArray<Repository>,
+    groupName: string
+  ) {
+    return this.appStore._fetchRepositories(repositories, groupName)
+  }
+
+  /** Watch a folder for new repositories to add automatically. */
+  public addWatchedRepositoryFolder(path: string) {
+    return this.appStore._addWatchedRepositoryFolder(path)
+  }
+
+  public removeWatchedRepositoryFolder(path: string) {
+    return this.appStore._removeWatchedRepositoryFolder(path)
+  }
+
   /** Adds the repository to, or removes it from, the favorites group. */
   public setRepositoryFavorite(repository: Repository, favorite: boolean) {
     return this.appStore._setRepositoryFavorite(repository, favorite)

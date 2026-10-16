@@ -1,4 +1,6 @@
 import { Repository } from '../../models/repository'
+import { ICustomRepositoryGroup } from '../../models/custom-repository-group'
+import { caseInsensitiveCompare } from '../../lib/compare'
 import { IMenuItem } from '../../lib/menu-item'
 import { Repositoryish } from './group-repositories'
 import { writeClipboardText } from '../main-process-proxy'
@@ -22,6 +24,11 @@ interface IRepositoryListItemContextMenuConfig {
   onRemoveRepositoryAlias: (repository: Repository) => void
   isFavorite: boolean
   onSetRepositoryFavorite: (repository: Repository, favorite: boolean) => void
+  customGroups: ReadonlyArray<ICustomRepositoryGroup>
+  /** The id of the custom group the repository is in, if any */
+  currentGroupId: string | undefined
+  onMoveToGroup: (repository: Repository, groupId: string | null) => void
+  onCreateGroup: (repository: Repository) => void
   onCreateWorktree?: (repository: Repository) => void
   onShowWorktrees?: (repository: Repository) => void
 }
@@ -42,6 +49,7 @@ export const generateRepositoryListContextMenu = (
 
   const items: ReadonlyArray<IMenuItem> = [
     ...buildFavoriteMenuItems(config),
+    ...buildGroupMenuItems(config),
     ...buildAliasMenuItems(config),
     ...buildWorktreeMenuItems(config),
     {
@@ -106,6 +114,52 @@ const buildFavoriteMenuItems = (
       action: () => config.onSetRepositoryFavorite(repository, !isFavorite),
     },
   ]
+}
+
+/** Ampersands mark access keys in menu labels, so they must be doubled */
+const escapeMenuLabel = (label: string) => label.replaceAll('&', '&&')
+
+const buildGroupMenuItems = (
+  config: IRepositoryListItemContextMenuConfig
+): ReadonlyArray<IMenuItem> => {
+  const { repository, customGroups, currentGroupId } = config
+
+  if (!(repository instanceof Repository)) {
+    return []
+  }
+
+  const groupItems: ReadonlyArray<IMenuItem> = [...customGroups]
+    .sort((x, y) => caseInsensitiveCompare(x.name, y.name))
+    .map(group => ({
+      label: escapeMenuLabel(group.name),
+      type: 'checkbox',
+      checked: group.id === currentGroupId,
+      action: () =>
+        config.onMoveToGroup(
+          repository,
+          group.id === currentGroupId ? null : group.id
+        ),
+    }))
+
+  const submenu: Array<IMenuItem> = [...groupItems]
+
+  if (groupItems.length > 0) {
+    submenu.push({ type: 'separator' })
+  }
+
+  submenu.push({
+    label: __DARWIN__ ? 'New Group…' : 'New group…',
+    action: () => config.onCreateGroup(repository),
+  })
+
+  if (currentGroupId !== undefined) {
+    submenu.push({
+      label: __DARWIN__ ? 'Remove from Group' : 'Remove from group',
+      action: () => config.onMoveToGroup(repository, null),
+    })
+  }
+
+  return [{ label: __DARWIN__ ? 'Move to Group' : 'Move to group', submenu }]
 }
 
 const buildAliasMenuItems = (

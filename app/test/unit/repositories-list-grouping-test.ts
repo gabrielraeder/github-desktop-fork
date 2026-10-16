@@ -155,6 +155,75 @@ describe('repository list grouping', () => {
   })
 })
 
+describe('repository list custom grouping', () => {
+  const cache = new Map<number, ILocalRepositoryState>()
+  const clients = { id: 'g1', name: 'Clients' }
+  const archive = { id: 'g2', name: 'archive' }
+
+  it('moves assigned repositories from their owner group into custom groups', () => {
+    const repoA = new Repository(
+      'a',
+      1,
+      gitHubRepoFixture({ owner: 'me', name: 'a' }),
+      false
+    )
+    const repoB = new Repository(
+      'b',
+      2,
+      gitHubRepoFixture({ owner: 'me', name: 'b' }),
+      false
+    )
+    const repoC = new Repository('c', 3, null, false)
+
+    const grouped = groupRepositories([repoA, repoB, repoC], cache, [], [], {
+      groups: [clients, archive],
+      assignments: { a: 'g1', c: 'g2' },
+    })
+
+    // Custom groups are sorted by name, case insensitively, before owners
+    assert.deepEqual(
+      grouped.map(g => g.identifier.kind),
+      ['custom', 'custom', 'dotcom']
+    )
+    assert.equal((grouped[0].identifier as any).name, 'archive')
+    assert.deepEqual(
+      grouped[0].items.map(i => i.repository.path),
+      ['c']
+    )
+    assert.equal((grouped[1].identifier as any).name, 'Clients')
+    assert.deepEqual(
+      grouped[1].items.map(i => i.repository.path),
+      ['a']
+    )
+    assert.deepEqual(
+      grouped[2].items.map(i => i.repository.path),
+      ['b']
+    )
+  })
+
+  it('ignores assignments to groups that no longer exist', () => {
+    const repoA = new Repository('a', 1, null, false)
+    const grouped = groupRepositories([repoA], cache, [], [], {
+      groups: [],
+      assignments: { a: 'deleted' },
+    })
+    assert.equal(grouped.length, 1)
+    assert.equal(grouped[0].identifier.kind, 'other')
+  })
+
+  it('lists favorites above custom groups', () => {
+    const repoA = new Repository('a', 1, null, false)
+    const grouped = groupRepositories([repoA], cache, [], ['a'], {
+      groups: [clients],
+      assignments: { a: 'g1' },
+    })
+    assert.deepEqual(
+      grouped.map(g => g.identifier.kind),
+      ['favorite', 'custom']
+    )
+  })
+})
+
 describe('repository list favorites grouping', () => {
   const cache = new Map<number, ILocalRepositoryState>()
 

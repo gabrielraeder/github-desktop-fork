@@ -91,7 +91,7 @@ import {
   RepositoryWithGitHubRepository,
   getNonForkGitHubRepository,
   isForkedRepositoryContributingToParent,
-  getFavoriteKey,
+  getRepositoryKey,
 } from '../../models/repository'
 import {
   CommittedFileChange,
@@ -405,6 +405,13 @@ import {
 import * as ipcRenderer from '../ipc-renderer'
 import { pathExists } from '../path-exists'
 import { getRepositoryPathPresence } from '../repository-path-presence'
+import { findRepositories } from '../find-repositories'
+import { containsPath, isPathInside } from '../path-comparison'
+import { directoryExists } from '../directory-exists'
+import {
+  ICustomRepositoryGroups,
+  parseCustomRepositoryGroups,
+} from '../../models/custom-repository-group'
 import { offsetFromNow } from '../offset-from'
 import { findContributionTargetDefaultBranch } from '../branch'
 import { ValidNotificationPullRequestReview } from '../valid-notification-pull-request-review'
@@ -475,6 +482,23 @@ const FavoriteRepositoriesKey = 'favorite-repository-paths'
 
 /** Favorites used to be stored by repository id under this key */
 const LegacyFavoriteRepositoryIdsKey = 'favorite-repositories'
+
+const CustomRepositoryGroupsKey = 'custom-repository-groups'
+
+/** Folders searched for new repositories to add automatically */
+const WatchedRepositoryFoldersKey = 'watched-repository-folders'
+
+/**
+ * Repositories in watched folders that the user removed from the list, and
+ * which therefore shouldn't be added back automatically.
+ */
+const IgnoredWatchedRepositoriesKey = 'ignored-watched-repository-paths'
+
+/** Minimum time between two scans of the watched folders */
+const WatchedFoldersScanInterval = 2 * 60 * 1000
+
+/** How many repositories to fetch at once when fetching a whole group */
+const GroupFetchConcurrency = 3
 
 const defaultSidebarWidth: number = 250
 const sidebarWidthConfigKey: string = 'sidebar-width'
@@ -625,8 +649,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private accounts: ReadonlyArray<Account> = new Array<Account>()
   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
   private recentRepositories: ReadonlyArray<number> = new Array<number>()
-  /** See `getFavoriteKey` */
+  /** See `getRepositoryKey` */
   private favoriteRepositories: ReadonlyArray<string> = new Array<string>()
+  private customRepositoryGroups: ICustomRepositoryGroups =
+    parseCustomRepositoryGroups(undefined)
+  private watchedRepositoryFolders: ReadonlyArray<string> = new Array<string>()
+  private lastWatchedFoldersScan = 0
+  private isScanningWatchedFolders = false
 
   private selectedRepository: Repository | CloningRepository | null = null
 
@@ -1304,6 +1333,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       repositories,
       recentRepositories: this.recentRepositories,
       favoriteRepositories: this.favoriteRepositories,
+      customRepositoryGroups: this.customRepositoryGroups,
+      watchedRepositoryFolders: this.watchedRepositoryFolders,
       localRepositoryStateLookup: this.localRepositoryStateLookup,
       windowState: this.windowState,
       windowZoomFactor: this.windowZoomFactor,
@@ -2517,6 +2548,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
     )
 
     this.favoriteRepositories = this.loadFavoriteRepositories(repositories)
+    this.customRepositoryGroups = parseCustomRepositoryGroups(
+      getObject(CustomRepositoryGroupsKey)
+    )
+    this.watchedRepositoryFolders = getStringArray(WatchedRepositoryFoldersKey)
 
     this.autoRemoveMissingRepositories = getBoolean(
       autoRemoveMissingRepositoriesKey,
@@ -2715,6 +2750,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.updateMenuLabelsForSelectedRepository()
 
     this.removeMissingRepositories()
+    this.scanWatchedFolders()
   }
 
   private loadFavoriteRepositories(
@@ -2729,7 +2765,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     const legacyIds = new Set(getNumberArray(LegacyFavoriteRepositoryIdsKey))
     const migrated = repositories
       .filter(r => legacyIds.has(r.id))
-      .map(getFavoriteKey)
+      .map(getRepositoryKey)
     const merged = [...new Set([...favorites, ...migrated])]
 
     setStringArray(FavoriteRepositoriesKey, merged)
@@ -5215,8 +5251,264 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
+  public _createRepositoryGroup(name: string, repository?: Repository) {
+    const group = { id: crypto.randomUUID(), name: name.trim() }
+    const { groups, assignments } = this.customRepositoryGroups
+
+    this.updateCustomRepositoryGroups({
+      groups: [...groups, group],
+      assignments:
+        repository === undefined
+          ? assignments
+          : { ...assignments, [getRepositoryKey(repository)]: group.id },
+    })
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public _renameRepositoryGroup(id: string, name: string) {
+    const { groups, assignments } = this.customRepositoryGroups
+
+    this.updateCustomRepositoryGroups({
+      groups: groups.map(g => (g.id === id ? { ...g, name: name.trim() } : g)),
+      assignments,
+    })
+  }
+
+  /**
+   * Delete a custom group. Its repositories go back to their regular group.
+   *
+   * This shouldn't be called directly. See `Dispatcher`.
+   */
+  public _deleteRepositoryGroup(id: string) {
+    const { groups, assignments } = this.customRepositoryGroups
+
+    this.updateCustomRepositoryGroups({
+      groups: groups.filter(g => g.id !== id),
+      assignments: Object.fromEntries(
+        Object.entries(assignments).filter(([, groupId]) => groupId !== id)
+      ),
+    })
+  }
+
+  /**
+   * Move a repository into a custom group, or back to its regular group when
+   * `groupId` is null.
+   *
+   * This shouldn't be called directly. See `Dispatcher`.
+   */
+  public _setRepositoryGroup(repository: Repository, groupId: string | null) {
+    const key = getRepositoryKey(repository)
+    const { groups, assignments } = this.customRepositoryGroups
+    const others = Object.fromEntries(
+      Object.entries(assignments).filter(([k]) => k !== key)
+    )
+
+    this.updateCustomRepositoryGroups({
+      groups,
+      assignments: groupId === null ? others : { ...others, [key]: groupId },
+    })
+  }
+
+  private updateCustomRepositoryGroups(groups: ICustomRepositoryGroups) {
+    this.customRepositoryGroups = groups
+    setObject(CustomRepositoryGroupsKey, groups)
+    this.emitUpdate()
+  }
+
+  /**
+   * Fetch the given repositories in the background, updating their ahead and
+   * behind indicators as they finish.
+   *
+   * This shouldn't be called directly. See `Dispatcher`.
+   *
+   * @param groupName the name of the group being fetched, for the banner
+   *                  shown once done
+   */
+  public async _fetchRepositories(
+    repositories: ReadonlyArray<Repository>,
+    groupName: string
+  ) {
+    const queue = repositories.filter(r => !r.missing)
+    const total = queue.length
+    const lookup = this.localRepositoryStateLookup
+    let fetched = 0
+
+    const fetchNext = async (): Promise<void> => {
+      const repository = queue.shift()
+      if (repository === undefined) {
+        return
+      }
+
+      try {
+        if (await pathExists(repository.path)) {
+          const aheadBehind = await this.fetchForRepositoryIndicator(repository)
+          lookup.set(repository.id, {
+            aheadBehind,
+            changedFilesCount:
+              lookup.get(repository.id)?.changedFilesCount ?? 0,
+          })
+          fetched++
+          this.emitUpdate()
+        }
+      } catch (e) {
+        log.error(`[AppStore] failed fetching ${repository.path}`, e)
+      }
+
+      return fetchNext()
+    }
+
+    await Promise.all(
+      Array.from({ length: GroupFetchConcurrency }, () => fetchNext())
+    )
+
+    if (this.currentBanner === null) {
+      const failed = total - fetched
+      this._setBanner({
+        type: BannerType.Notice,
+        message:
+          `Fetched ${fetched} ${
+            fetched === 1 ? 'repository' : 'repositories'
+          } in ${groupName}` +
+          (failed > 0 ? ` (${failed} couldn't be fetched).` : '.'),
+      })
+    }
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public _addWatchedRepositoryFolder(path: string) {
+    if (containsPath(this.watchedRepositoryFolders, path)) {
+      return
+    }
+
+    this.updateWatchedRepositoryFolders([
+      ...this.watchedRepositoryFolders,
+      path,
+    ])
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public _removeWatchedRepositoryFolder(path: string) {
+    this.updateWatchedRepositoryFolders(
+      this.watchedRepositoryFolders.filter(f => !containsPath([f], path))
+    )
+  }
+
+  private updateWatchedRepositoryFolders(folders: ReadonlyArray<string>) {
+    this.watchedRepositoryFolders = folders
+    setStringArray(WatchedRepositoryFoldersKey, folders)
+    this.emitUpdate()
+  }
+
+  /**
+   * Remember that the user removed a repository in a watched folder, so that
+   * it isn't added back automatically.
+   */
+  private ignoreIfInWatchedFolder(path: string) {
+    if (!this.watchedRepositoryFolders.some(f => isPathInside(path, f))) {
+      return
+    }
+
+    const ignored = getStringArray(IgnoredWatchedRepositoriesKey)
+    if (!containsPath(ignored, path)) {
+      setStringArray(IgnoredWatchedRepositoriesKey, [...ignored, path])
+    }
+  }
+
+  /** Allow repositories the user added again to be added automatically. */
+  private unignoreWatchedRepositories(paths: ReadonlyArray<string>) {
+    const ignored = getStringArray(IgnoredWatchedRepositoriesKey)
+    const remaining = ignored.filter(p => !containsPath(paths, p))
+
+    if (remaining.length !== ignored.length) {
+      setStringArray(IgnoredWatchedRepositoriesKey, remaining)
+    }
+  }
+
+  /**
+   * Add repositories that have appeared in the watched folders, e.g. because
+   * they were cloned outside of the app.
+   */
+  private async scanWatchedFolders() {
+    if (
+      this.watchedRepositoryFolders.length === 0 ||
+      this.isScanningWatchedFolders ||
+      Date.now() - this.lastWatchedFoldersScan < WatchedFoldersScanInterval
+    ) {
+      return
+    }
+
+    this.isScanningWatchedFolders = true
+    this.lastWatchedFoldersScan = Date.now()
+
+    let added: ReadonlyArray<Repository> = []
+
+    try {
+      const ignored = getStringArray(IgnoredWatchedRepositoriesKey)
+      // Repositories being cloned by the app will be added once done
+      const cloning = this.cloningRepositoriesStore.repositories.map(
+        r => r.path
+      )
+      const isKnown = (path: string) =>
+        matchExistingRepository(this.repositories, path) !== undefined ||
+        containsPath(ignored, path) ||
+        containsPath(cloning, path)
+
+      const candidates = new Array<string>()
+      for (const folder of this.watchedRepositoryFolders) {
+        if (!(await directoryExists(folder))) {
+          continue
+        }
+
+        for (const path of await findRepositories(folder)) {
+          if (!isKnown(path) && !containsPath(candidates, path)) {
+            candidates.push(path)
+          }
+        }
+      }
+
+      // Only add valid repositories so that a broken one doesn't show an
+      // error every time the folders are scanned.
+      const valid = new Array<string>()
+      for (const path of candidates) {
+        const type = await getRepositoryType(path).catch(() => null)
+        if (
+          type?.kind === 'regular' &&
+          !isKnown(type.topLevelWorkingDirectory)
+        ) {
+          valid.push(type.topLevelWorkingDirectory)
+        }
+      }
+
+      if (valid.length > 0) {
+        log.info(
+          `[AppStore] adding ${valid.length} repositories found in watched folders`
+        )
+        added = await this._addRepositories(valid)
+      }
+    } catch (e) {
+      log.error('[AppStore] failed scanning watched folders', e)
+    } finally {
+      this.isScanningWatchedFolders = false
+    }
+
+    if (added.length > 0 && this.currentBanner === null) {
+      const names = added.slice(0, 3).map(r => r.name)
+      const more = added.length - names.length
+      this._setBanner({
+        type: BannerType.Notice,
+        message:
+          `Added ${added.length} new ${
+            added.length === 1 ? 'repository' : 'repositories'
+          } from watched folders: ` +
+          names.join(', ') +
+          (more > 0 ? ` and ${more} more.` : '.'),
+      })
+    }
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
   public _setRepositoryFavorite(repository: Repository, favorite: boolean) {
-    const key = getFavoriteKey(repository)
+    const key = getRepositoryKey(repository)
     const isFavorite = this.favoriteRepositories.includes(key)
     if (isFavorite === favorite) {
       return
@@ -8355,6 +8647,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     if (this.appIsFocused) {
       this.removeMissingRepositories()
+      this.scanWatchedFolders()
       this.repositoryIndicatorUpdater.resume()
       if (this.selectedRepository instanceof Repository) {
         this.startPullRequestUpdater(this.selectedRepository)
@@ -8536,6 +8829,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       }
     }
 
+    this.unignoreWatchedRepositories(addedRepositories.map(r => r.path))
+
     if (invalidPaths.length > 0) {
       this.emitError(new Error(this.getInvalidRepoPathsMessage(invalidPaths)))
     }
@@ -8608,6 +8903,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this._removeCloningRepository(repository)
       } else {
         await this.repositoriesStore.removeRepository(repository)
+        this.ignoreIfInWatchedFolder(repository.path)
       }
     } catch (err) {
       this.emitError(err)

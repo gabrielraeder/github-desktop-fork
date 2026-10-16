@@ -32,7 +32,7 @@ import {
   getGitHubHtmlUrl,
   getNonForkGitHubRepository,
   isRepositoryWithGitHubRepository,
-  getFavoriteKey,
+  getRepositoryKey,
 } from '../models/repository'
 import { Branch } from '../models/branch'
 import { PreferencesTab } from '../models/preferences'
@@ -147,6 +147,7 @@ import { CommitDragElement } from './drag-elements/commit-drag-element'
 import classNames from 'classnames'
 import { MoveToApplicationsFolder } from './move-to-applications-folder'
 import { ChangeRepositoryAlias } from './change-repository-alias/change-repository-alias-dialog'
+import { RepositoryGroupNameDialog } from './repository-group/repository-group-name-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -1783,6 +1784,7 @@ export class App extends React.Component<IAppProps, IAppState> {
             autoRemoveMissingRepositories={
               this.state.autoRemoveMissingRepositories
             }
+            watchedRepositoryFolders={this.state.watchedRepositoryFolders}
             onEditGlobalGitConfig={this.editGlobalGitConfig}
             underlineLinks={this.state.underlineLinks}
             showDiffCheckMarks={this.state.showDiffCheckMarks}
@@ -1876,6 +1878,8 @@ export class App extends React.Component<IAppProps, IAppState> {
             onDismissed={onPopupDismissedFn}
             dispatcher={this.props.dispatcher}
             path={popup.path}
+            existingRepositoryPaths={this.state.repositories.map(r => r.path)}
+            watchedRepositoryFolders={this.state.watchedRepositoryFolders}
           />
         )
       case PopupType.CreateRepository:
@@ -2381,6 +2385,16 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.RepositoryGroupName:
+        return (
+          <RepositoryGroupNameDialog
+            key="repository-group-name"
+            dispatcher={this.props.dispatcher}
+            group={popup.group}
+            repository={popup.repository}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
       case PopupType.ChangeRepositoryAlias: {
         return (
           <ChangeRepositoryAlias
@@ -3402,6 +3416,7 @@ export class App extends React.Component<IAppProps, IAppState> {
         repositories={repositories}
         recentRepositories={this.state.recentRepositories}
         favoriteRepositories={this.state.favoriteRepositories}
+        customRepositoryGroups={this.state.customRepositoryGroups}
         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
         askForConfirmationOnRemoveRepository={
           this.state.askForConfirmationOnRepositoryRemoval
@@ -3611,9 +3626,23 @@ export class App extends React.Component<IAppProps, IAppState> {
       onRemoveRepositoryAlias: onRemoveRepositoryAlias,
       isFavorite:
         repository instanceof Repository &&
-        this.state.favoriteRepositories.includes(getFavoriteKey(repository)),
+        this.state.favoriteRepositories.includes(getRepositoryKey(repository)),
       onSetRepositoryFavorite: (repository: Repository, favorite: boolean) =>
         this.props.dispatcher.setRepositoryFavorite(repository, favorite),
+      customGroups: this.state.customRepositoryGroups.groups,
+      currentGroupId:
+        repository instanceof Repository
+          ? this.state.customRepositoryGroups.assignments[
+              getRepositoryKey(repository)
+            ]
+          : undefined,
+      onMoveToGroup: (repository: Repository, groupId: string | null) =>
+        this.props.dispatcher.setRepositoryGroup(repository, groupId),
+      onCreateGroup: (repository: Repository) =>
+        this.props.dispatcher.showPopup({
+          type: PopupType.RepositoryGroupName,
+          repository,
+        }),
       onViewOnGitHub: this.viewOnGitHub,
       onCreateWorktree: enableWorktreeSupport() ? onCreateWorktree : undefined,
       onShowWorktrees: enableWorktreeSupport() ? onShowWorktrees : undefined,

@@ -4,6 +4,7 @@ import { Checkbox, CheckboxValue } from '../lib/checkbox'
 import { LinkButton } from '../lib/link-button'
 import { SamplesURL } from '../../lib/stats'
 import { isWindowsOpenSSHAvailable } from '../../lib/ssh/ssh'
+import { WatchedFolder } from './watched-folder'
 
 interface IAdvancedPreferencesProps {
   readonly useWindowsOpenSSH: boolean
@@ -11,6 +12,8 @@ interface IAdvancedPreferencesProps {
   readonly useExternalCredentialHelper: boolean
   readonly repositoryIndicatorsEnabled: boolean
   readonly autoRemoveMissingRepositories: boolean
+  readonly watchedRepositoryFolders: ReadonlyArray<string>
+  readonly onStopWatchingFolder: (path: string) => void
   readonly onUseWindowsOpenSSHChanged: (checked: boolean) => void
   readonly onOptOutofReportingChanged: (checked: boolean) => void
   readonly onUseExternalCredentialHelperChanged: (checked: boolean) => void
@@ -143,6 +146,7 @@ export class Advanced extends React.Component<
               a drive or network share that is currently unavailable are kept.
             </p>
           </div>
+          {this.renderWatchedFolders()}
         </div>
         <div className="advanced-section">
           <h2>Usage</h2>
@@ -184,6 +188,40 @@ export class Advanced extends React.Component<
           </div>
         </div>
       </DialogContent>
+    )
+  }
+
+  private renderWatchedFolders() {
+    const folders = this.props.watchedRepositoryFolders
+
+    return (
+      <div className="watched-folders">
+        <h3>Watched folders</h3>
+        {folders.length === 0 ? (
+          <p className="settings-description">
+            No folders are watched. When adding the repositories inside a
+            folder, choose to keep watching it to add new repositories that
+            appear there automatically.
+          </p>
+        ) : (
+          <>
+            <ul>
+              {folders.map(f => (
+                <WatchedFolder
+                  key={f}
+                  path={f}
+                  onStopWatching={this.props.onStopWatchingFolder}
+                />
+              ))}
+            </ul>
+            <p className="settings-description">
+              New repositories in these folders are added when GitHub Desktop
+              starts or regains focus. Repositories you remove from the list
+              aren't added again.
+            </p>
+          </>
+        )}
+      </div>
     )
   }
 

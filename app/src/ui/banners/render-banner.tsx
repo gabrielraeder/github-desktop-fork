@@ -172,6 +172,16 @@ export function renderBanner(
       )
     case BannerType.OSVersionNoLongerSupported:
       return <OSVersionNoLongerSupportedBanner onDismissed={onDismissed} />
+    case BannerType.Notice:
+      return (
+        <SuccessBanner
+          key={`notice-${banner.message}`}
+          timeout={10000}
+          onDismissed={onDismissed}
+        >
+          {banner.message}
+        </SuccessBanner>
+      )
     case BannerType.RemovedMissingRepositories:
       return (
         <RemovedMissingRepositories

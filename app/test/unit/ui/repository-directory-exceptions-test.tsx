@@ -78,6 +78,8 @@ describe('AddExistingRepository directory exceptions', () => {
         dispatcher={dispatcher.dispatcher}
         path={requestedPath}
         onDismissed={onDismissed}
+        existingRepositoryPaths={[]}
+        watchedRepositoryFolders={[]}
       />
     )
 

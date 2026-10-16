@@ -4,6 +4,7 @@ import {
   RepositoryWithForkedGitHubRepository,
 } from './repository'
 import { PullRequest } from './pull-request'
+import { ICustomRepositoryGroup } from './custom-repository-group'
 import { Branch } from './branch'
 import { ReleaseNote, ReleaseSummary } from './release-notes'
 import { IRemote } from './remote'
@@ -80,6 +81,7 @@ export enum PopupType {
   ConfirmDiscardSelection = 'ConfirmDiscardSelection',
   MoveToApplicationsFolder = 'MoveToApplicationsFolder',
   ChangeRepositoryAlias = 'ChangeRepositoryAlias',
+  RepositoryGroupName = 'RepositoryGroupName',
   ThankYou = 'ThankYou',
   CommitMessage = 'CommitMessage',
   MultiCommitOperation = 'MultiCommitOperation',
@@ -345,6 +347,13 @@ export type PopupDetail =
     }
   | { type: PopupType.MoveToApplicationsFolder }
   | { type: PopupType.ChangeRepositoryAlias; repository: Repository }
+  | {
+      type: PopupType.RepositoryGroupName
+      /** The group to rename, or undefined to create one */
+      group?: ICustomRepositoryGroup
+      /** A repository to move into the new group */
+      repository?: Repository
+    }
   | {
       type: PopupType.ThankYou
       userContributions: ReadonlyArray<ReleaseNote>

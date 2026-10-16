@@ -648,6 +648,24 @@ dialog {
 
   &#add-existing-repository {
     width: 400px;
+
+    .found-repositories-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: var(--spacing-half);
+    }
+
+    .found-repositories-list {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: var(--spacing-half);
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+
+      .found-repository {
+        margin: 2px 0;
+      }
+    }
   }
 
   &#initialize-lfs {

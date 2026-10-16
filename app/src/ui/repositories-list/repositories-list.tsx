@@ -13,7 +13,7 @@ import { IMatches } from '../../lib/fuzzy-find'
 import {
   ILocalRepositoryState,
   Repository,
-  getFavoriteKey,
+  getRepositoryKey,
 } from '../../models/repository'
 import { Dispatcher } from '../dispatcher'
 import { Button } from '../lib/button'
@@ -32,6 +32,7 @@ import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
 import { getStringArray, setStringArray } from '../../lib/local-storage'
+import { ICustomRepositoryGroups } from '../../models/custom-repository-group'
 
 /** The local storage key for the keys of the collapsed repository groups */
 const CollapsedGroupsKey = 'collapsed-repository-groups'
@@ -43,6 +44,7 @@ interface IRepositoriesListProps {
   readonly repositories: ReadonlyArray<Repositoryish>
   readonly recentRepositories: ReadonlyArray<number>
   readonly favoriteRepositories: ReadonlyArray<string>
+  readonly customRepositoryGroups: ICustomRepositoryGroups
 
   /** A cache of the latest repository state values, keyed by the repository id */
   readonly localRepositoryStateLookup: ReadonlyMap<
@@ -136,6 +138,7 @@ export class RepositoriesList extends React.Component<
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
       recentRepositories: ReadonlyArray<number>,
       favoriteRepositories: ReadonlyArray<string>,
+      customRepositoryGroups: ICustomRepositoryGroups,
       collapsedGroups: ReadonlySet<string>
     ) =>
       repositories === null
@@ -144,7 +147,8 @@ export class RepositoriesList extends React.Component<
             repositories,
             localRepositoryStateLookup,
             recentRepositories,
-            favoriteRepositories
+            favoriteRepositories,
+            customRepositoryGroups
           ).map(group => ({
             ...group,
             collapsed: collapsedGroups.has(getGroupKey(group.identifier)),
@@ -271,6 +275,8 @@ export class RepositoriesList extends React.Component<
       return 'Recent'
     } else if (kind === 'favorite') {
       return 'Favorites'
+    } else if (kind === 'custom') {
+      return group.name
     } else {
       assertNever(kind, `Unknown repository group kind ${kind}`)
     }
@@ -291,6 +297,7 @@ export class RepositoriesList extends React.Component<
         data-group-key={key}
         aria-expanded={!collapsed}
         onClick={this.onGroupHeaderClick}
+        onContextMenu={this.onGroupHeaderContextMenu}
       >
         {group.kind === 'favorite' && (
           <Octicon className="favorite-icon" symbol={octicons.star} />
@@ -324,8 +331,87 @@ export class RepositoriesList extends React.Component<
       collapsedGroups.add(key)
     }
 
+    this.setCollapsedGroups(collapsedGroups)
+  }
+
+  private setCollapsedGroups(collapsedGroups: ReadonlySet<string>) {
     setStringArray(CollapsedGroupsKey, [...collapsedGroups])
     this.setState({ collapsedGroups })
+  }
+
+  private getGroups() {
+    return this.getRepositoryGroups(
+      this.props.repositories,
+      this.props.localRepositoryStateLookup,
+      this.props.recentRepositories,
+      this.props.favoriteRepositories,
+      this.props.customRepositoryGroups,
+      this.state.collapsedGroups
+    )
+  }
+
+  private onGroupHeaderContextMenu = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault()
+
+    const key = event.currentTarget.dataset.groupKey
+    const groups = this.getGroups()
+    const group = groups.find(g => getGroupKey(g.identifier) === key)
+    if (group === undefined) {
+      return
+    }
+
+    const { identifier } = group
+    const label = this.getGroupLabel(identifier)
+    const repositories = group.items
+      .map(i => i.repository)
+      .filter((r): r is Repository => r instanceof Repository && !r.missing)
+
+    const items: Array<IMenuItem> = [
+      {
+        label: __DARWIN__
+          ? 'Fetch All Repositories in Group'
+          : 'Fetch all repositories in group',
+        action: () =>
+          this.props.dispatcher.fetchRepositories(repositories, label),
+        enabled: repositories.length > 0,
+      },
+      { type: 'separator' },
+      {
+        label: __DARWIN__ ? 'Collapse All Groups' : 'Collapse all groups',
+        action: () =>
+          this.setCollapsedGroups(
+            new Set(groups.map(g => getGroupKey(g.identifier)))
+          ),
+      },
+      {
+        label: __DARWIN__ ? 'Expand All Groups' : 'Expand all groups',
+        action: () => this.setCollapsedGroups(new Set()),
+      },
+    ]
+
+    if (identifier.kind === 'custom') {
+      const customGroup = { id: identifier.id, name: identifier.name }
+      items.push(
+        { type: 'separator' },
+        {
+          label: __DARWIN__ ? 'Rename Group…' : 'Rename group…',
+          action: () =>
+            this.props.dispatcher.showPopup({
+              type: PopupType.RepositoryGroupName,
+              group: customGroup,
+            }),
+        },
+        {
+          label: __DARWIN__ ? 'Delete Group' : 'Delete group',
+          action: () =>
+            this.props.dispatcher.deleteRepositoryGroup(identifier.id),
+        }
+      )
+    }
+
+    showContextualMenu(items)
   }
 
   private onItemClick = (item: IRepositoryListItem) => {
@@ -357,9 +443,18 @@ export class RepositoriesList extends React.Component<
       isFavorite:
         item.repository instanceof Repository &&
         this.props.favoriteRepositories.includes(
-          getFavoriteKey(item.repository)
+          getRepositoryKey(item.repository)
         ),
       onSetRepositoryFavorite: this.onSetRepositoryFavorite,
+      customGroups: this.props.customRepositoryGroups.groups,
+      currentGroupId:
+        item.repository instanceof Repository
+          ? this.props.customRepositoryGroups.assignments[
+              getRepositoryKey(item.repository)
+            ]
+          : undefined,
+      onMoveToGroup: this.onMoveToGroup,
+      onCreateGroup: this.onCreateGroup,
       onViewOnGitHub: this.props.onViewOnGitHub,
       onCreateWorktree: enableWorktreeSupport()
         ? this.onCreateWorktree
@@ -385,13 +480,7 @@ export class RepositoriesList extends React.Component<
       this.getGroupLabel(groups[group].identifier)
 
   public render() {
-    const groups = this.getRepositoryGroups(
-      this.props.repositories,
-      this.props.localRepositoryStateLookup,
-      this.props.recentRepositories,
-      this.props.favoriteRepositories,
-      this.state.collapsedGroups
-    )
+    const groups = this.getGroups()
 
     // So there's two types of selection at play here. There's the repository
     // selection for the whole app and then there's the keyboard selection in
@@ -419,6 +508,7 @@ export class RepositoriesList extends React.Component<
           invalidationProps={{
             repositories: this.props.repositories,
             favoriteRepositories: this.props.favoriteRepositories,
+            customRepositoryGroups: this.props.customRepositoryGroups,
             collapsedGroups: this.state.collapsedGroups,
             filterText: this.props.filterText,
           }}
@@ -529,6 +619,17 @@ export class RepositoriesList extends React.Component<
 
   private onRemoveRepositoryAlias = (repository: Repository) => {
     this.props.dispatcher.changeRepositoryAlias(repository, null)
+  }
+
+  private onMoveToGroup = (repository: Repository, groupId: string | null) => {
+    this.props.dispatcher.setRepositoryGroup(repository, groupId)
+  }
+
+  private onCreateGroup = (repository: Repository) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.RepositoryGroupName,
+      repository,
+    })
   }
 
   private onSetRepositoryFavorite = (

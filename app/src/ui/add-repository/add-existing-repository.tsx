@@ -18,6 +18,15 @@ import { InputError } from '../lib/input-description/input-error'
 import { IAccessibleMessage } from '../../models/accessible-message'
 import { Checkbox, CheckboxValue } from '../lib/checkbox'
 import { findRepositories } from '../../lib/find-repositories'
+import { containsPath } from '../../lib/path-comparison'
+import { getBoolean, setBoolean } from '../../lib/local-storage'
+import { FoundRepositoryCheckbox } from './found-repository-checkbox'
+
+/** Whether the user last chose to add the repositories inside a folder */
+const SearchSubfoldersKey = 'add-repositories-search-subfolders'
+
+/** The folder the user last added the repositories inside of */
+const LastSearchedFolderKey = 'add-repositories-last-folder'
 
 interface IAddExistingRepositoryProps {
   readonly dispatcher: Dispatcher
@@ -27,6 +36,19 @@ interface IAddExistingRepositoryProps {
    * Defaults to the empty string if not defined.
    */
   readonly path?: string
+
+  /** Paths of the repositories already in the repository list */
+  readonly existingRepositoryPaths: ReadonlyArray<string>
+
+  /** Folders already watched for new repositories */
+  readonly watchedRepositoryFolders: ReadonlyArray<string>
+}
+
+/** The repositories found by searching a folder */
+interface IFolderSearchResult {
+  /** The path as entered when the folder was searched */
+  readonly path: string
+  readonly repositoryPaths: ReadonlyArray<string>
 }
 
 interface IAddExistingRepositoryState {
@@ -55,6 +77,13 @@ interface IAddExistingRepositoryState {
 
   /** Shown when searching the chosen folder didn't find any repositories */
   readonly noRepositoriesFoundPath?: string
+
+  /** The repositories found inside the folder, to choose from */
+  readonly searchResult?: IFolderSearchResult
+  readonly selectedRepositoryPaths: ReadonlySet<string>
+
+  /** Whether to keep adding new repositories that appear in the folder */
+  readonly watchFolder: boolean
 }
 
 /** The component for adding an existing local repository. */
@@ -67,7 +96,15 @@ export class AddExistingRepository extends React.Component<
   public constructor(props: IAddExistingRepositoryProps) {
     super(props)
 
-    const path = this.props.path ? this.props.path : ''
+    // Pick up where the user left off when adding the repositories in a
+    // folder, unless we've been given a path to add.
+    const searchSubfolders =
+      !this.props.path && getBoolean(SearchSubfoldersKey, false)
+    const path = this.props.path
+      ? this.props.path
+      : searchSubfolders
+      ? localStorage.getItem(LastSearchedFolderKey) ?? ''
+      : ''
 
     this.state = {
       path,
@@ -75,8 +112,10 @@ export class AddExistingRepository extends React.Component<
       isRepositoryBare: false,
       isRepositoryUnsafe: false,
       isTrustingRepository: false,
-      searchSubfolders: false,
+      searchSubfolders,
       isSearchingSubfolders: false,
+      selectedRepositoryPaths: new Set(),
+      watchFolder: this.isWatched(path),
     }
   }
 
@@ -96,7 +135,30 @@ export class AddExistingRepository extends React.Component<
   }
 
   private async updatePath(path: string) {
-    this.setState({ path, noRepositoriesFoundPath: undefined })
+    this.setState({
+      path,
+      noRepositoriesFoundPath: undefined,
+      searchResult: undefined,
+      watchFolder: this.isWatched(path),
+    })
+  }
+
+  private isWatched(path: string) {
+    return (
+      path.length > 0 &&
+      containsPath(this.props.watchedRepositoryFolders, this.resolvedPath(path))
+    )
+  }
+
+  private isAlreadyAdded = (path: string) =>
+    containsPath(this.props.existingRepositoryPaths, path)
+
+  /** The search result for the path currently entered, if any */
+  private getSearchResult() {
+    const { searchResult, path } = this.state
+    return searchResult !== undefined && searchResult.path === path
+      ? searchResult
+      : undefined
   }
 
   private async validatePath(path: string): Promise<boolean> {
@@ -296,33 +358,146 @@ export class AddExistingRepository extends React.Component<
               onChange={this.onSearchSubfoldersChanged}
             />
           </Row>
+          {this.state.searchSubfolders && (
+            <Row>
+              <Checkbox
+                label="Keep watching this folder and add new repositories automatically"
+                value={
+                  this.state.watchFolder ? CheckboxValue.On : CheckboxValue.Off
+                }
+                onChange={this.onWatchFolderChanged}
+              />
+            </Row>
+          )}
+          {this.state.searchSubfolders && this.renderSearchResult()}
           {this.renderErrors()}
         </DialogContent>
 
         <DialogFooter>
           <OkCancelButtonGroup
-            okButtonText={
-              this.state.searchSubfolders
-                ? __DARWIN__
-                  ? 'Add Repositories'
-                  : 'Add repositories'
-                : __DARWIN__
-                ? 'Add Repository'
-                : 'Add repository'
-            }
+            okButtonText={this.getOkButtonText()}
+            okButtonDisabled={this.isOkButtonDisabled()}
           />
         </DialogFooter>
       </Dialog>
     )
   }
 
+  private getSelectedRepositoryPaths() {
+    const result = this.getSearchResult()
+    return result === undefined
+      ? []
+      : result.repositoryPaths.filter(
+          p =>
+            this.state.selectedRepositoryPaths.has(p) && !this.isAlreadyAdded(p)
+        )
+  }
+
+  private getOkButtonText() {
+    if (!this.state.searchSubfolders) {
+      return __DARWIN__ ? 'Add Repository' : 'Add repository'
+    }
+
+    if (this.getSearchResult() === undefined) {
+      return __DARWIN__ ? 'Find Repositories' : 'Find repositories'
+    }
+
+    const count = this.getSelectedRepositoryPaths().length
+    if (count === 0 && this.state.watchFolder) {
+      return __DARWIN__ ? 'Watch Folder' : 'Watch folder'
+    }
+
+    const noun = count === 1 ? 'Repository' : 'Repositories'
+    return `Add ${count} ${__DARWIN__ ? noun : noun.toLowerCase()}`
+  }
+
+  private isOkButtonDisabled() {
+    return (
+      this.state.searchSubfolders &&
+      this.getSearchResult() !== undefined &&
+      this.getSelectedRepositoryPaths().length === 0 &&
+      !this.state.watchFolder
+    )
+  }
+
+  private renderSearchResult() {
+    const result = this.getSearchResult()
+    if (result === undefined) {
+      return null
+    }
+
+    const root = this.resolvedPath(result.path)
+    const { repositoryPaths } = result
+    const alreadyAdded = repositoryPaths.filter(this.isAlreadyAdded).length
+    const noun = repositoryPaths.length === 1 ? 'repository' : 'repositories'
+
+    return (
+      <div className="found-repositories">
+        <div className="found-repositories-header">
+          <span>
+            Found {repositoryPaths.length} {noun}
+            {alreadyAdded > 0 && ` (${alreadyAdded} already added)`}
+          </span>
+          <span>
+            <LinkButton onClick={this.onSelectAllFound}>Select all</LinkButton>
+            {' · '}
+            <LinkButton onClick={this.onSelectNoneFound}>None</LinkButton>
+          </span>
+        </div>
+        <div className="found-repositories-list">
+          {repositoryPaths.map(p => (
+            <FoundRepositoryCheckbox
+              key={p}
+              path={p}
+              label={Path.relative(root, p) || Path.basename(p)}
+              checked={
+                this.state.selectedRepositoryPaths.has(p) &&
+                !this.isAlreadyAdded(p)
+              }
+              alreadyAdded={this.isAlreadyAdded(p)}
+              onChange={this.onFoundRepositoryChanged}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  private onFoundRepositoryChanged = (path: string, checked: boolean) => {
+    const selectedRepositoryPaths = new Set(this.state.selectedRepositoryPaths)
+    if (checked) {
+      selectedRepositoryPaths.add(path)
+    } else {
+      selectedRepositoryPaths.delete(path)
+    }
+    this.setState({ selectedRepositoryPaths })
+  }
+
+  private onSelectAllFound = () => {
+    const result = this.getSearchResult()
+    this.setState({
+      selectedRepositoryPaths: new Set(result?.repositoryPaths ?? []),
+    })
+  }
+
+  private onSelectNoneFound = () => {
+    this.setState({ selectedRepositoryPaths: new Set() })
+  }
+
+  private onWatchFolderChanged = (event: React.FormEvent<HTMLInputElement>) => {
+    this.setState({ watchFolder: event.currentTarget.checked })
+  }
+
   private onSearchSubfoldersChanged = (
     event: React.FormEvent<HTMLInputElement>
   ) => {
-    this.setState({ searchSubfolders: event.currentTarget.checked })
+    const searchSubfolders = event.currentTarget.checked
+    setBoolean(SearchSubfoldersKey, searchSubfolders)
+    this.setState({ searchSubfolders })
   }
 
   private onSearchSubfoldersClicked = () => {
+    setBoolean(SearchSubfoldersKey, true)
     this.setState({ searchSubfolders: true })
   }
 
@@ -333,8 +508,14 @@ export class AddExistingRepository extends React.Component<
   }
 
   private showFilePicker = async () => {
+    const defaultPath =
+      this.state.path.length > 0
+        ? this.resolvedPath(this.state.path)
+        : localStorage.getItem(LastSearchedFolderKey) ?? undefined
+
     const path = await showOpenDialog({
       properties: ['createDirectory', 'openDirectory'],
+      defaultPath,
     })
 
     if (path === null) {
@@ -382,18 +563,46 @@ export class AddExistingRepository extends React.Component<
       return
     }
 
-    this.setState({ isSearchingSubfolders: true })
-    const paths = await findRepositories(this.resolvedPath(path))
-    this.setState({ isSearchingSubfolders: false })
+    const resolvedPath = this.resolvedPath(path)
 
-    if (paths.length === 0) {
-      this.setState({ noRepositoriesFoundPath: path })
-      this.pathTextBoxRef.current?.focus()
+    // The first step is to search the folder and let the user pick which of
+    // the repositories found to add.
+    if (this.getSearchResult() === undefined) {
+      this.setState({ isSearchingSubfolders: true })
+      const repositoryPaths = await findRepositories(resolvedPath)
+      this.setState({ isSearchingSubfolders: false })
+
+      if (repositoryPaths.length === 0) {
+        this.setState({ noRepositoriesFoundPath: path })
+        this.pathTextBoxRef.current?.focus()
+        return
+      }
+
+      this.setState({
+        searchResult: { path, repositoryPaths },
+        selectedRepositoryPaths: new Set(
+          repositoryPaths.filter(p => !this.isAlreadyAdded(p))
+        ),
+      })
       return
     }
 
+    const paths = this.getSelectedRepositoryPaths()
+    if (paths.length === 0 && !this.state.watchFolder) {
+      return
+    }
+
+    localStorage.setItem(LastSearchedFolderKey, resolvedPath)
     this.props.onDismissed()
     const { dispatcher } = this.props
+
+    if (this.state.watchFolder) {
+      dispatcher.addWatchedRepositoryFolder(resolvedPath)
+    }
+
+    if (paths.length === 0) {
+      return
+    }
 
     const repositories = await dispatcher.addRepositories(paths)
 

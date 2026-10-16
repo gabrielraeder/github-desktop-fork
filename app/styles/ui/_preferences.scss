@@ -49,6 +49,34 @@
       .warning-icon {
         color: var(--warning-badge-icon-color);
       }
+
+      .watched-folders {
+        margin-top: var(--spacing);
+
+        ul {
+          margin: 0;
+          padding: 0;
+          list-style: none;
+        }
+
+        .watched-folder {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--spacing);
+          padding: var(--spacing-half) 0;
+
+          .ref-component {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .link-button-component {
+            flex-shrink: 0;
+          }
+        }
+      }
     }
   }
 
