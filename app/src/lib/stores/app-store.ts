@@ -91,6 +91,7 @@ import {
   RepositoryWithGitHubRepository,
   getNonForkGitHubRepository,
   isForkedRepositoryContributingToParent,
+  getFavoriteKey,
 } from '../../models/repository'
 import {
   CommittedFileChange,
@@ -287,6 +288,8 @@ import {
   getNumber,
   getNumberArray,
   setNumberArray,
+  getStringArray,
+  setStringArray,
   getEnum,
   getObject,
   setObject,
@@ -468,7 +471,10 @@ const RecentRepositoriesKey = 'recently-selected-repositories'
  */
 const RecentRepositoriesLength = 3
 
-const FavoriteRepositoriesKey = 'favorite-repositories'
+const FavoriteRepositoriesKey = 'favorite-repository-paths'
+
+/** Favorites used to be stored by repository id under this key */
+const LegacyFavoriteRepositoryIdsKey = 'favorite-repositories'
 
 const defaultSidebarWidth: number = 250
 const sidebarWidthConfigKey: string = 'sidebar-width'
@@ -613,7 +619,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private accounts: ReadonlyArray<Account> = new Array<Account>()
   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
   private recentRepositories: ReadonlyArray<number> = new Array<number>()
-  private favoriteRepositories: ReadonlyArray<number> = new Array<number>()
+  /** See `getFavoriteKey` */
+  private favoriteRepositories: ReadonlyArray<string> = new Array<string>()
 
   private selectedRepository: Repository | CloningRepository | null = null
 
@@ -2503,7 +2510,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       confirmRepoRemovalDefault
     )
 
-    this.favoriteRepositories = getNumberArray(FavoriteRepositoriesKey)
+    this.favoriteRepositories = this.loadFavoriteRepositories(repositories)
 
     this.autoRemoveMissingRepositories = getBoolean(
       autoRemoveMissingRepositoriesKey,
@@ -2704,6 +2711,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.removeMissingRepositories()
   }
 
+  private loadFavoriteRepositories(
+    repositories: ReadonlyArray<Repository>
+  ): ReadonlyArray<string> {
+    const favorites = getStringArray(FavoriteRepositoriesKey)
+
+    if (localStorage.getItem(LegacyFavoriteRepositoryIdsKey) === null) {
+      return favorites
+    }
+
+    const legacyIds = new Set(getNumberArray(LegacyFavoriteRepositoryIdsKey))
+    const migrated = repositories
+      .filter(r => legacyIds.has(r.id))
+      .map(getFavoriteKey)
+    const merged = [...new Set([...favorites, ...migrated])]
+
+    setStringArray(FavoriteRepositoriesKey, merged)
+    localStorage.removeItem(LegacyFavoriteRepositoryIdsKey)
+
+    return merged
+  }
+
   /**
    * Remove repositories whose folder has been deleted from disk.
    *
@@ -2731,7 +2759,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
           continue
         }
 
-        if ((await this.recoverMissingWorktree(repository)) !== null) {
+        if (
+          (await this.mayBeLinkedWorktree(repository)) &&
+          (await this.recoverMissingWorktree(repository)) !== null
+        ) {
           continue
         }
 
@@ -2739,13 +2770,28 @@ export class AppStore extends TypedBaseStore<IAppState> {
           `[AppStore] removing repository at ${repository.path} as its folder no longer exists`
         )
         await this.repositoriesStore.removeRepository(repository)
-        this._setRepositoryFavorite(repository, false)
       }
     } catch (e) {
       log.error('[AppStore] failed removing missing repositories', e)
     } finally {
       this.isScanningForMissingRepositories = false
     }
+  }
+
+  /**
+   * Whether a repository whose folder is gone might be a linked worktree that
+   * can be recovered by switching to its main worktree. Checking this first
+   * avoids running Git in a folder that doesn't exist for every ordinary
+   * repository that has been deleted.
+   */
+  private async mayBeLinkedWorktree(repository: Repository) {
+    const { mainWorktreePath, gitDir, path } = repository
+
+    if (mainWorktreePath !== undefined && mainWorktreePath !== path) {
+      return true
+    }
+
+    return gitDir !== undefined && (await pathExists(gitDir))
   }
 
   public _setAutoRemoveMissingRepositories(autoRemove: boolean) {
@@ -5106,15 +5152,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   /** This shouldn't be called directly. See `Dispatcher`. */
   public _setRepositoryFavorite(repository: Repository, favorite: boolean) {
-    const isFavorite = this.favoriteRepositories.includes(repository.id)
+    const key = getFavoriteKey(repository)
+    const isFavorite = this.favoriteRepositories.includes(key)
     if (isFavorite === favorite) {
       return
     }
 
     this.favoriteRepositories = favorite
-      ? [...this.favoriteRepositories, repository.id]
-      : this.favoriteRepositories.filter(id => id !== repository.id)
-    setNumberArray(FavoriteRepositoriesKey, this.favoriteRepositories)
+      ? [...this.favoriteRepositories, key]
+      : this.favoriteRepositories.filter(k => k !== key)
+    setStringArray(FavoriteRepositoriesKey, this.favoriteRepositories)
     this.emitUpdate()
   }
 
@@ -8497,7 +8544,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this._removeCloningRepository(repository)
       } else {
         await this.repositoriesStore.removeRepository(repository)
-        this._setRepositoryFavorite(repository, false)
       }
     } catch (err) {
       this.emitError(err)

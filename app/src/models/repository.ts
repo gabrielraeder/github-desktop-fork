@@ -162,6 +162,17 @@ export interface ILocalRepositoryState {
  * Returns the owner/name alias if associated with a GitHub repository,
  * otherwise the folder name that contains the repository
  */
+/**
+ * Returns the key a repository is stored under in the list of favorites.
+ *
+ * Favorites are keyed by path rather than id so that they survive removing a
+ * repository and adding it again. The main worktree path is used when known
+ * because switching to a linked worktree changes the repository's `path`.
+ */
+export function getFavoriteKey(repository: Repository): string {
+  return repository.mainWorktreePath ?? repository.path
+}
+
 export function nameOf(repository: Repository) {
   const { gitHubRepository } = repository
 

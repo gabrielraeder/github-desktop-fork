@@ -4,6 +4,7 @@ import {
   nameOf,
   isRepositoryWithGitHubRepository,
   RepositoryWithGitHubRepository,
+  getFavoriteKey,
 } from '../../models/repository'
 import { CloningRepository } from '../../models/cloning-repository'
 import { getHTMLURL } from '../../lib/api'
@@ -80,7 +81,7 @@ export function groupRepositories(
   repositories: ReadonlyArray<Repositoryish>,
   localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
   recentRepositories: ReadonlyArray<number>,
-  favoriteRepositories: ReadonlyArray<number> = []
+  favoriteRepositories: ReadonlyArray<string> = []
 ): ReadonlyArray<IFilterListGroup<IRepositoryListItem, RepositoryListGroup>> {
   const includeRecentGroup = repositories.length > recentRepositoriesThreshold
   const recentSet = includeRecentGroup ? new Set(recentRepositories) : undefined
@@ -99,7 +100,7 @@ export function groupRepositories(
   }
 
   for (const repo of repositories) {
-    if (favoriteSet.has(repo.id) && repo instanceof Repository) {
+    if (repo instanceof Repository && favoriteSet.has(getFavoriteKey(repo))) {
       addToGroup({ kind: 'favorite' }, repo)
     }
 

@@ -32,6 +32,7 @@ import {
   getGitHubHtmlUrl,
   getNonForkGitHubRepository,
   isRepositoryWithGitHubRepository,
+  getFavoriteKey,
 } from '../models/repository'
 import { Branch } from '../models/branch'
 import { PreferencesTab } from '../models/preferences'
@@ -3608,7 +3609,9 @@ export class App extends React.Component<IAppProps, IAppState> {
       externalEditorLabel: this.externalEditorLabel,
       onChangeRepositoryAlias: onChangeRepositoryAlias,
       onRemoveRepositoryAlias: onRemoveRepositoryAlias,
-      isFavorite: this.state.favoriteRepositories.includes(repository.id),
+      isFavorite:
+        repository instanceof Repository &&
+        this.state.favoriteRepositories.includes(getFavoriteKey(repository)),
       onSetRepositoryFavorite: (repository: Repository, favorite: boolean) =>
         this.props.dispatcher.setRepositoryFavorite(repository, favorite),
       onViewOnGitHub: this.viewOnGitHub,

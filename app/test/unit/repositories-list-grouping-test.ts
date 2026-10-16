@@ -168,7 +168,12 @@ describe('repository list favorites grouping', () => {
     )
     const repoC = new Repository('c', 3, null, false)
 
-    const grouped = groupRepositories([repoA, repoB, repoC], cache, [], [3, 2])
+    const grouped = groupRepositories(
+      [repoA, repoB, repoC],
+      cache,
+      [],
+      ['c', 'b']
+    )
     assert.equal(grouped.length, 3)
 
     assert.equal(grouped[0].identifier.kind, 'favorite')
@@ -181,6 +186,22 @@ describe('repository list favorites grouping', () => {
     assert.equal(grouped[1].identifier.kind, 'dotcom')
     assert.equal(grouped[2].identifier.kind, 'other')
     assert.equal(grouped[2].items.length, 2)
+  })
+
+  it('keeps a favorite when switched to a linked worktree', () => {
+    const worktree = new Repository(
+      'main-wt-feature',
+      1,
+      null,
+      false,
+      null,
+      {},
+      false,
+      undefined,
+      'main'
+    )
+    const grouped = groupRepositories([worktree], cache, [], ['main'])
+    assert.equal(grouped[0].identifier.kind, 'favorite')
   })
 
   it('omits the favorites group when there are no favorites', () => {

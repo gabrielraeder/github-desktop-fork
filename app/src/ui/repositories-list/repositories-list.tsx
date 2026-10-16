@@ -10,7 +10,11 @@ import {
 } from './group-repositories'
 import { IFilterListGroup } from '../lib/filter-list'
 import { IMatches } from '../../lib/fuzzy-find'
-import { ILocalRepositoryState, Repository } from '../../models/repository'
+import {
+  ILocalRepositoryState,
+  Repository,
+  getFavoriteKey,
+} from '../../models/repository'
 import { Dispatcher } from '../dispatcher'
 import { Button } from '../lib/button'
 import { Octicon } from '../octicons'
@@ -38,7 +42,7 @@ interface IRepositoriesListProps {
   readonly selectedRepository: Repositoryish | null
   readonly repositories: ReadonlyArray<Repositoryish>
   readonly recentRepositories: ReadonlyArray<number>
-  readonly favoriteRepositories: ReadonlyArray<number>
+  readonly favoriteRepositories: ReadonlyArray<string>
 
   /** A cache of the latest repository state values, keyed by the repository id */
   readonly localRepositoryStateLookup: ReadonlyMap<
@@ -131,7 +135,7 @@ export class RepositoriesList extends React.Component<
       repositories: ReadonlyArray<Repositoryish> | null,
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
       recentRepositories: ReadonlyArray<number>,
-      favoriteRepositories: ReadonlyArray<number>,
+      favoriteRepositories: ReadonlyArray<string>,
       collapsedGroups: ReadonlySet<string>
     ) =>
       repositories === null
@@ -350,7 +354,11 @@ export class RepositoriesList extends React.Component<
       externalEditorLabel: this.props.externalEditorLabel,
       onChangeRepositoryAlias: this.onChangeRepositoryAlias,
       onRemoveRepositoryAlias: this.onRemoveRepositoryAlias,
-      isFavorite: this.props.favoriteRepositories.includes(item.repository.id),
+      isFavorite:
+        item.repository instanceof Repository &&
+        this.props.favoriteRepositories.includes(
+          getFavoriteKey(item.repository)
+        ),
       onSetRepositoryFavorite: this.onSetRepositoryFavorite,
       onViewOnGitHub: this.props.onViewOnGitHub,
       onCreateWorktree: enableWorktreeSupport()
