@@ -401,6 +401,7 @@ import {
 } from './notifications-store'
 import * as ipcRenderer from '../ipc-renderer'
 import { pathExists } from '../path-exists'
+import { getRepositoryPathPresence } from '../repository-path-presence'
 import { offsetFromNow } from '../offset-from'
 import { findContributionTargetDefaultBranch } from '../branch'
 import { ValidNotificationPullRequestReview } from '../valid-notification-pull-request-review'
@@ -466,6 +467,8 @@ const RecentRepositoriesKey = 'recently-selected-repositories'
  *  in the repository switcher dropdown
  */
 const RecentRepositoriesLength = 3
+
+const FavoriteRepositoriesKey = 'favorite-repositories'
 
 const defaultSidebarWidth: number = 250
 const sidebarWidthConfigKey: string = 'sidebar-width'
@@ -540,6 +543,16 @@ const shellKey = 'shell'
 
 const repositoryIndicatorsEnabledKey = 'enable-repository-indicators'
 
+const autoRemoveMissingRepositoriesKey = 'auto-remove-missing-repositories'
+const autoRemoveMissingRepositoriesDefault = true
+
+/**
+ * Minimum time between two scans for repositories whose folder has been
+ * deleted, so that rapidly focusing and blurring the app doesn't hit the disk
+ * over and over.
+ */
+const MissingRepositoriesScanInterval = 60 * 1000
+
 // background fetching should occur hourly when Desktop is active, but this
 // lower interval ensures user interactions like switching repositories and
 // switching between apps does not result in excessive fetching in the app
@@ -600,6 +613,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private accounts: ReadonlyArray<Account> = new Array<Account>()
   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
   private recentRepositories: ReadonlyArray<number> = new Array<number>()
+  private favoriteRepositories: ReadonlyArray<number> = new Array<number>()
 
   private selectedRepository: Repository | CloningRepository | null = null
 
@@ -719,6 +733,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private hasUserViewedStash = false
 
   private repositoryIndicatorsEnabled: boolean
+
+  private autoRemoveMissingRepositories: boolean =
+    autoRemoveMissingRepositoriesDefault
+  private lastMissingRepositoriesScan = 0
+  private isScanningForMissingRepositories = false
 
   /** Which step the user needs to complete next in the onboarding tutorial */
   private currentOnboardingTutorialStep = TutorialStep.NotApplicable
@@ -1271,6 +1290,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       accounts: this.accounts,
       repositories,
       recentRepositories: this.recentRepositories,
+      favoriteRepositories: this.favoriteRepositories,
       localRepositoryStateLookup: this.localRepositoryStateLookup,
       windowState: this.windowState,
       windowZoomFactor: this.windowZoomFactor,
@@ -1334,6 +1354,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       optOutOfUsageTracking: this.statsStore.getOptOut(),
       currentOnboardingTutorialStep: this.currentOnboardingTutorialStep,
       repositoryIndicatorsEnabled: this.repositoryIndicatorsEnabled,
+      autoRemoveMissingRepositories: this.autoRemoveMissingRepositories,
       commitSpellcheckEnabled: this.commitSpellcheckEnabled,
       currentDragElement: this.currentDragElement,
       lastThankYou: this.lastThankYou,
@@ -2482,6 +2503,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
       confirmRepoRemovalDefault
     )
 
+    this.favoriteRepositories = getNumberArray(FavoriteRepositoriesKey)
+
+    this.autoRemoveMissingRepositories = getBoolean(
+      autoRemoveMissingRepositoriesKey,
+      autoRemoveMissingRepositoriesDefault
+    )
+
     // We're planning to flip the default value to false. As such we'll
     // start persisting the current behavior to localstorage, so we
     // can change the default in the future without affecting current
@@ -2672,6 +2700,67 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.accountsStore.refresh()
 
     this.updateMenuLabelsForSelectedRepository()
+
+    this.removeMissingRepositories()
+  }
+
+  /**
+   * Remove repositories whose folder has been deleted from disk.
+   *
+   * Repositories on a drive or network share that is currently unavailable
+   * are left alone, as are linked worktrees that can be recovered by
+   * switching to their main worktree.
+   */
+  private async removeMissingRepositories() {
+    if (
+      !this.autoRemoveMissingRepositories ||
+      this.isScanningForMissingRepositories ||
+      Date.now() - this.lastMissingRepositoriesScan <
+        MissingRepositoriesScanInterval
+    ) {
+      return
+    }
+
+    this.isScanningForMissingRepositories = true
+    this.lastMissingRepositoriesScan = Date.now()
+
+    try {
+      for (const repository of this.repositories) {
+        const presence = await getRepositoryPathPresence(repository.path)
+        if (presence !== 'missing') {
+          continue
+        }
+
+        if ((await this.recoverMissingWorktree(repository)) !== null) {
+          continue
+        }
+
+        log.info(
+          `[AppStore] removing repository at ${repository.path} as its folder no longer exists`
+        )
+        await this.repositoriesStore.removeRepository(repository)
+        this._setRepositoryFavorite(repository, false)
+      }
+    } catch (e) {
+      log.error('[AppStore] failed removing missing repositories', e)
+    } finally {
+      this.isScanningForMissingRepositories = false
+    }
+  }
+
+  public _setAutoRemoveMissingRepositories(autoRemove: boolean) {
+    if (this.autoRemoveMissingRepositories === autoRemove) {
+      return
+    }
+
+    setBoolean(autoRemoveMissingRepositoriesKey, autoRemove)
+    this.autoRemoveMissingRepositories = autoRemove
+    this.emitUpdate()
+
+    if (autoRemove) {
+      this.lastMissingRepositoriesScan = 0
+      this.removeMissingRepositories()
+    }
   }
 
   /**
@@ -5013,6 +5102,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.emitUpdate()
 
     return Promise.resolve()
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public _setRepositoryFavorite(repository: Repository, favorite: boolean) {
+    const isFavorite = this.favoriteRepositories.includes(repository.id)
+    if (isFavorite === favorite) {
+      return
+    }
+
+    this.favoriteRepositories = favorite
+      ? [...this.favoriteRepositories, repository.id]
+      : this.favoriteRepositories.filter(id => id !== repository.id)
+    setNumberArray(FavoriteRepositoriesKey, this.favoriteRepositories)
+    this.emitUpdate()
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
@@ -8140,6 +8243,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     if (this.appIsFocused) {
+      this.removeMissingRepositories()
       this.repositoryIndicatorUpdater.resume()
       if (this.selectedRepository instanceof Repository) {
         this.startPullRequestUpdater(this.selectedRepository)
@@ -8393,6 +8497,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this._removeCloningRepository(repository)
       } else {
         await this.repositoriesStore.removeRepository(repository)
+        this._setRepositoryFavorite(repository, false)
       }
     } catch (err) {
       this.emitError(err)

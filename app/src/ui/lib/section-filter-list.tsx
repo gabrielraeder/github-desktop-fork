@@ -742,7 +742,10 @@ function createStateUpdate<T extends IFilterListItem, GroupIdentifier>(
       groupRows.push({ kind: 'group', identifier: group.identifier })
     }
 
-    for (const { item, matches } of items) {
+    const visibleItems =
+      group.collapsed === true && !filter && groupRows.length > 0 ? [] : items
+
+    for (const { item, matches } of visibleItems) {
       if (selectedItem && item.id === selectedItem.id) {
         selectedRow = {
           section,

@@ -1779,6 +1779,9 @@ export class App extends React.Component<IAppProps, IAppState> {
             customShell={this.state.customShell}
             copilotAppPath={this.state.copilotAppPath}
             repositoryIndicatorsEnabled={this.state.repositoryIndicatorsEnabled}
+            autoRemoveMissingRepositories={
+              this.state.autoRemoveMissingRepositories
+            }
             onEditGlobalGitConfig={this.editGlobalGitConfig}
             underlineLinks={this.state.underlineLinks}
             showDiffCheckMarks={this.state.showDiffCheckMarks}
@@ -3397,6 +3400,7 @@ export class App extends React.Component<IAppProps, IAppState> {
         onSelectionChanged={this.onSelectionChanged}
         repositories={repositories}
         recentRepositories={this.state.recentRepositories}
+        favoriteRepositories={this.state.favoriteRepositories}
         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
         askForConfirmationOnRemoveRepository={
           this.state.askForConfirmationOnRepositoryRemoval
@@ -3604,6 +3608,9 @@ export class App extends React.Component<IAppProps, IAppState> {
       externalEditorLabel: this.externalEditorLabel,
       onChangeRepositoryAlias: onChangeRepositoryAlias,
       onRemoveRepositoryAlias: onRemoveRepositoryAlias,
+      isFavorite: this.state.favoriteRepositories.includes(repository.id),
+      onSetRepositoryFavorite: (repository: Repository, favorite: boolean) =>
+        this.props.dispatcher.setRepositoryFavorite(repository, favorite),
       onViewOnGitHub: this.viewOnGitHub,
       onCreateWorktree: enableWorktreeSupport() ? onCreateWorktree : undefined,
       onShowWorktrees: enableWorktreeSupport() ? onShowWorktrees : undefined,

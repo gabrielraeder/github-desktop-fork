@@ -27,6 +27,10 @@ import { enableWorktreeSupport } from '../../lib/feature-flag'
 import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
+import { getStringArray, setStringArray } from '../../lib/local-storage'
+
+/** The local storage key for the keys of the collapsed repository groups */
+const CollapsedGroupsKey = 'collapsed-repository-groups'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
 
@@ -34,6 +38,7 @@ interface IRepositoriesListProps {
   readonly selectedRepository: Repositoryish | null
   readonly repositories: ReadonlyArray<Repositoryish>
   readonly recentRepositories: ReadonlyArray<number>
+  readonly favoriteRepositories: ReadonlyArray<number>
 
   /** A cache of the latest repository state values, keyed by the repository id */
   readonly localRepositoryStateLookup: ReadonlyMap<
@@ -80,6 +85,9 @@ interface IRepositoriesListProps {
 interface IRepositoriesListState {
   readonly newRepositoryMenuExpanded: boolean
   readonly selectedItem: IRepositoryListItem | null
+
+  /** The keys (see `getGroupKey`) of the groups the user has collapsed */
+  readonly collapsedGroups: ReadonlySet<string>
 }
 
 const RowHeight = 29
@@ -122,15 +130,21 @@ export class RepositoriesList extends React.Component<
     (
       repositories: ReadonlyArray<Repositoryish> | null,
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
-      recentRepositories: ReadonlyArray<number>
+      recentRepositories: ReadonlyArray<number>,
+      favoriteRepositories: ReadonlyArray<number>,
+      collapsedGroups: ReadonlySet<string>
     ) =>
       repositories === null
         ? []
         : groupRepositories(
             repositories,
             localRepositoryStateLookup,
-            recentRepositories
-          )
+            recentRepositories,
+            favoriteRepositories
+          ).map(group => ({
+            ...group,
+            collapsed: collapsedGroups.has(getGroupKey(group.identifier)),
+          }))
   )
 
   /**
@@ -150,6 +164,7 @@ export class RepositoriesList extends React.Component<
     this.state = {
       newRepositoryMenuExpanded: false,
       selectedItem: null,
+      collapsedGroups: new Set(getStringArray(CollapsedGroupsKey)),
     }
   }
 
@@ -250,6 +265,8 @@ export class RepositoriesList extends React.Component<
       return group.owner.login
     } else if (kind === 'recent') {
       return 'Recent'
+    } else if (kind === 'favorite') {
+      return 'Favorites'
     } else {
       assertNever(kind, `Unknown repository group kind ${kind}`)
     }
@@ -257,18 +274,54 @@ export class RepositoriesList extends React.Component<
 
   private renderGroupHeader = (group: RepositoryListGroup) => {
     const label = this.getGroupLabel(group)
+    const key = getGroupKey(group)
+    // Collapsed groups are expanded while filtering, see `IFilterListGroup`
+    const collapsed =
+      this.state.collapsedGroups.has(key) && this.props.filterText.length === 0
 
     return (
-      <TooltippedContent
-        key={getGroupKey(group)}
-        className="filter-list-group-header"
-        tooltip={label}
-        onlyWhenOverflowed={true}
-        tagName="div"
+      <button
+        key={key}
+        type="button"
+        className="filter-list-group-header repository-group-header"
+        data-group-key={key}
+        aria-expanded={!collapsed}
+        onClick={this.onGroupHeaderClick}
       >
-        {label}
-      </TooltippedContent>
+        {group.kind === 'favorite' && (
+          <Octicon className="favorite-icon" symbol={octicons.star} />
+        )}
+        <TooltippedContent
+          className="repository-group-label"
+          tooltip={label}
+          onlyWhenOverflowed={true}
+          tagName="span"
+        >
+          {label}
+        </TooltippedContent>
+        <Octicon
+          className="collapse-icon"
+          symbol={collapsed ? octicons.chevronRight : octicons.chevronDown}
+        />
+      </button>
     )
+  }
+
+  private onGroupHeaderClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const key = event.currentTarget.dataset.groupKey
+    if (key === undefined) {
+      return
+    }
+
+    const collapsedGroups = new Set(this.state.collapsedGroups)
+    if (collapsedGroups.has(key)) {
+      collapsedGroups.delete(key)
+    } else {
+      collapsedGroups.add(key)
+    }
+
+    setStringArray(CollapsedGroupsKey, [...collapsedGroups])
+    this.setState({ collapsedGroups })
   }
 
   private onItemClick = (item: IRepositoryListItem) => {
@@ -297,6 +350,8 @@ export class RepositoriesList extends React.Component<
       externalEditorLabel: this.props.externalEditorLabel,
       onChangeRepositoryAlias: this.onChangeRepositoryAlias,
       onRemoveRepositoryAlias: this.onRemoveRepositoryAlias,
+      isFavorite: this.props.favoriteRepositories.includes(item.repository.id),
+      onSetRepositoryFavorite: this.onSetRepositoryFavorite,
       onViewOnGitHub: this.props.onViewOnGitHub,
       onCreateWorktree: enableWorktreeSupport()
         ? this.onCreateWorktree
@@ -325,7 +380,9 @@ export class RepositoriesList extends React.Component<
     const groups = this.getRepositoryGroups(
       this.props.repositories,
       this.props.localRepositoryStateLookup,
-      this.props.recentRepositories
+      this.props.recentRepositories,
+      this.props.favoriteRepositories,
+      this.state.collapsedGroups
     )
 
     // So there's two types of selection at play here. There's the repository
@@ -353,6 +410,8 @@ export class RepositoriesList extends React.Component<
           groups={groups}
           invalidationProps={{
             repositories: this.props.repositories,
+            favoriteRepositories: this.props.favoriteRepositories,
+            collapsedGroups: this.state.collapsedGroups,
             filterText: this.props.filterText,
           }}
           onItemContextMenu={this.onItemContextMenu}
@@ -462,6 +521,13 @@ export class RepositoriesList extends React.Component<
 
   private onRemoveRepositoryAlias = (repository: Repository) => {
     this.props.dispatcher.changeRepositoryAlias(repository, null)
+  }
+
+  private onSetRepositoryFavorite = (
+    repository: Repository,
+    favorite: boolean
+  ) => {
+    this.props.dispatcher.setRepositoryFavorite(repository, favorite)
   }
 
   private onCreateWorktree = (repository: Repository) => {

@@ -119,6 +119,7 @@ interface IPreferencesProps {
   readonly customShell: ICustomIntegration | null
   readonly copilotAppPath: string | null
   readonly repositoryIndicatorsEnabled: boolean
+  readonly autoRemoveMissingRepositories: boolean
   readonly onEditGlobalGitConfig: () => void
   readonly underlineLinks: boolean
   readonly showDiffCheckMarks: boolean
@@ -174,6 +175,7 @@ interface IPreferencesState {
    */
   readonly existingLockFilePath?: string
   readonly repositoryIndicatorsEnabled: boolean
+  readonly autoRemoveMissingRepositories: boolean
 
   readonly initiallySelectedTheme: ApplicationTheme
   readonly initiallySelectedTabSize: number
@@ -253,6 +255,7 @@ export class Preferences extends React.Component<
       availableShells: [],
       selectedShell: this.props.selectedShell,
       repositoryIndicatorsEnabled: this.props.repositoryIndicatorsEnabled,
+      autoRemoveMissingRepositories: this.props.autoRemoveMissingRepositories,
       initiallySelectedTheme: this.props.selectedTheme,
       initiallySelectedTabSize: this.props.selectedTabSize,
       alwaysShowWorktreeList: this.props.alwaysShowWorktreeList,
@@ -744,6 +747,9 @@ export class Preferences extends React.Component<
             optOutOfUsageTracking={this.state.optOutOfUsageTracking}
             useExternalCredentialHelper={this.state.useExternalCredentialHelper}
             repositoryIndicatorsEnabled={this.state.repositoryIndicatorsEnabled}
+            autoRemoveMissingRepositories={
+              this.state.autoRemoveMissingRepositories
+            }
             onUseWindowsOpenSSHChanged={this.onUseWindowsOpenSSHChanged}
             onOptOutofReportingChanged={this.onOptOutofReportingChanged}
             onUseExternalCredentialHelperChanged={
@@ -751,6 +757,9 @@ export class Preferences extends React.Component<
             }
             onRepositoryIndicatorsEnabledChanged={
               this.onRepositoryIndicatorsEnabledChanged
+            }
+            onAutoRemoveMissingRepositoriesChanged={
+              this.onAutoRemoveMissingRepositoriesChanged
             }
           />
         )
@@ -785,6 +794,12 @@ export class Preferences extends React.Component<
     repositoryIndicatorsEnabled: boolean
   ) => {
     this.setState({ repositoryIndicatorsEnabled })
+  }
+
+  private onAutoRemoveMissingRepositoriesChanged = (
+    autoRemoveMissingRepositories: boolean
+  ) => {
+    this.setState({ autoRemoveMissingRepositories })
   }
 
   private onLockFileDeleted = () => {
@@ -1071,6 +1086,15 @@ export class Preferences extends React.Component<
       ) {
         dispatcher.setRepositoryIndicatorsEnabled(
           this.state.repositoryIndicatorsEnabled
+        )
+      }
+
+      if (
+        this.props.autoRemoveMissingRepositories !==
+        this.state.autoRemoveMissingRepositories
+      ) {
+        dispatcher.setAutoRemoveMissingRepositories(
+          this.state.autoRemoveMissingRepositories
         )
       }
 

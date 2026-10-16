@@ -20,6 +20,8 @@ interface IRepositoryListItemContextMenuConfig {
   onRemoveRepository: (repository: Repositoryish) => void
   onChangeRepositoryAlias: (repository: Repository) => void
   onRemoveRepositoryAlias: (repository: Repository) => void
+  isFavorite: boolean
+  onSetRepositoryFavorite: (repository: Repository, favorite: boolean) => void
   onCreateWorktree?: (repository: Repository) => void
   onShowWorktrees?: (repository: Repository) => void
 }
@@ -39,6 +41,7 @@ export const generateRepositoryListContextMenu = (
     : DefaultShellLabel
 
   const items: ReadonlyArray<IMenuItem> = [
+    ...buildFavoriteMenuItems(config),
     ...buildAliasMenuItems(config),
     ...buildWorktreeMenuItems(config),
     {
@@ -78,6 +81,31 @@ export const generateRepositoryListContextMenu = (
   ]
 
   return items
+}
+
+const buildFavoriteMenuItems = (
+  config: IRepositoryListItemContextMenuConfig
+): ReadonlyArray<IMenuItem> => {
+  const { repository, isFavorite } = config
+
+  if (!(repository instanceof Repository)) {
+    return []
+  }
+
+  const label = isFavorite
+    ? __DARWIN__
+      ? 'Remove from Favorites'
+      : 'Remove from favorites'
+    : __DARWIN__
+    ? 'Add to Favorites'
+    : 'Add to favorites'
+
+  return [
+    {
+      label,
+      action: () => config.onSetRepositoryFavorite(repository, !isFavorite),
+    },
+  ]
 }
 
 const buildAliasMenuItems = (

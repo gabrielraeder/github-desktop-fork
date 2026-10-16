@@ -868,6 +868,11 @@ export class Dispatcher {
     })
   }
 
+  /** Adds the repository to, or removes it from, the favorites group. */
+  public setRepositoryFavorite(repository: Repository, favorite: boolean) {
+    return this.appStore._setRepositoryFavorite(repository, favorite)
+  }
+
   /** Changes the repository alias to a new name. */
   public changeRepositoryAlias(
     repository: Repository,
@@ -2939,6 +2944,10 @@ export class Dispatcher {
 
   public setRepositoryIndicatorsEnabled(repositoryIndicatorsEnabled: boolean) {
     this.appStore._setRepositoryIndicatorsEnabled(repositoryIndicatorsEnabled)
+  }
+
+  public setAutoRemoveMissingRepositories(autoRemove: boolean) {
+    this.appStore._setAutoRemoveMissingRepositories(autoRemove)
   }
 
   public setCommitSpellcheckEnabled(commitSpellcheckEnabled: boolean) {

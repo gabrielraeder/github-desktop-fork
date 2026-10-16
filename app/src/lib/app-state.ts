@@ -103,6 +103,11 @@ export interface IAppState {
   readonly recentRepositories: ReadonlyArray<number>
 
   /**
+   * List of IDs of the repositories the user has marked as favorites
+   */
+  readonly favoriteRepositories: ReadonlyArray<number>
+
+  /**
    * A cache of the latest repository state values, keyed by the repository id
    */
   readonly localRepositoryStateLookup: Map<number, ILocalRepositoryState>
@@ -353,6 +358,12 @@ export interface IAppState {
    * for more information
    */
   readonly repositoryIndicatorsEnabled: boolean
+
+  /**
+   * Whether repositories whose folder has been deleted from disk should be
+   * removed from the repository list automatically
+   */
+  readonly autoRemoveMissingRepositories: boolean
 
   /**
    * Whether or not the app should use spell check on commit summary and description

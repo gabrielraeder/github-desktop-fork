@@ -154,3 +154,39 @@ describe('repository list grouping', () => {
     assert(grouped[2].items[1].needsDisambiguation)
   })
 })
+
+describe('repository list favorites grouping', () => {
+  const cache = new Map<number, ILocalRepositoryState>()
+
+  it('shows favorite repositories in a group above all others', () => {
+    const repoA = new Repository('a', 1, null, false)
+    const repoB = new Repository(
+      'b',
+      2,
+      gitHubRepoFixture({ owner: 'me', name: 'b' }),
+      false
+    )
+    const repoC = new Repository('c', 3, null, false)
+
+    const grouped = groupRepositories([repoA, repoB, repoC], cache, [], [3, 2])
+    assert.equal(grouped.length, 3)
+
+    assert.equal(grouped[0].identifier.kind, 'favorite')
+    assert.deepEqual(
+      grouped[0].items.map(i => i.repository.path),
+      ['b', 'c']
+    )
+
+    // Favorites are still listed in their regular group as well
+    assert.equal(grouped[1].identifier.kind, 'dotcom')
+    assert.equal(grouped[2].identifier.kind, 'other')
+    assert.equal(grouped[2].items.length, 2)
+  })
+
+  it('omits the favorites group when there are no favorites', () => {
+    const repoA = new Repository('a', 1, null, false)
+    const grouped = groupRepositories([repoA], cache, [], [])
+    assert.equal(grouped.length, 1)
+    assert.equal(grouped[0].identifier.kind, 'other')
+  })
+})

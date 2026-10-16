@@ -10,10 +10,12 @@ interface IAdvancedPreferencesProps {
   readonly optOutOfUsageTracking: boolean
   readonly useExternalCredentialHelper: boolean
   readonly repositoryIndicatorsEnabled: boolean
+  readonly autoRemoveMissingRepositories: boolean
   readonly onUseWindowsOpenSSHChanged: (checked: boolean) => void
   readonly onOptOutofReportingChanged: (checked: boolean) => void
   readonly onUseExternalCredentialHelperChanged: (checked: boolean) => void
   readonly onRepositoryIndicatorsEnabledChanged: (enabled: boolean) => void
+  readonly onAutoRemoveMissingRepositoriesChanged: (enabled: boolean) => void
 }
 
 interface IAdvancedPreferencesState {
@@ -68,6 +70,14 @@ export class Advanced extends React.Component<
     this.props.onRepositoryIndicatorsEnabledChanged(event.currentTarget.checked)
   }
 
+  private onAutoRemoveMissingRepositoriesChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.props.onAutoRemoveMissingRepositoriesChanged(
+      event.currentTarget.checked
+    )
+  }
+
   private onUseWindowsOpenSSHChanged = (
     event: React.FormEvent<HTMLInputElement>
   ) => {
@@ -108,6 +118,29 @@ export class Advanced extends React.Component<
               Turning this off will not stop the periodic fetching of your
               currently selected repository, but may improve overall app
               performance for users with many repositories.
+            </p>
+          </div>
+        </div>
+        <div className="advanced-section">
+          <h2>Repository list</h2>
+          <Checkbox
+            label="Automatically remove repositories that no longer exist"
+            value={
+              this.props.autoRemoveMissingRepositories
+                ? CheckboxValue.On
+                : CheckboxValue.Off
+            }
+            onChange={this.onAutoRemoveMissingRepositoriesChanged}
+            ariaDescribedBy="auto-remove-missing-repositories-description"
+          />
+          <div
+            id="auto-remove-missing-repositories-description"
+            className="settings-description"
+          >
+            <p>
+              Repositories whose folder has been deleted are removed from the
+              list when GitHub Desktop starts or regains focus. Repositories on
+              a drive or network share that is currently unavailable are kept.
             </p>
           </div>
         </div>
