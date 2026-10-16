@@ -553,6 +553,12 @@ const autoRemoveMissingRepositoriesKey = 'auto-remove-missing-repositories'
 const autoRemoveMissingRepositoriesDefault = true
 
 /**
+ * Paths of repositories whose removal the user undid. They're left in the
+ * list until their folder is back.
+ */
+const KeptMissingRepositoriesKey = 'kept-missing-repository-paths'
+
+/**
  * Minimum time between two scans for repositories whose folder has been
  * deleted, so that rapidly focusing and blurring the app doesn't hit the disk
  * over and over.
@@ -2752,10 +2758,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.isScanningForMissingRepositories = true
     this.lastMissingRepositoriesScan = Date.now()
 
+    const kept = new Set(getStringArray(KeptMissingRepositoriesKey))
+    const keptCount = kept.size
+    const removed = new Array<Repository>()
+
     try {
       for (const repository of this.repositories) {
         const presence = await getRepositoryPathPresence(repository.path)
-        if (presence !== 'missing') {
+
+        if (presence === 'present') {
+          kept.delete(repository.path)
+        }
+
+        if (presence !== 'missing' || kept.has(repository.path)) {
           continue
         }
 
@@ -2770,11 +2785,60 @@ export class AppStore extends TypedBaseStore<IAppState> {
           `[AppStore] removing repository at ${repository.path} as its folder no longer exists`
         )
         await this.repositoriesStore.removeRepository(repository)
+        removed.push(repository)
       }
     } catch (e) {
       log.error('[AppStore] failed removing missing repositories', e)
     } finally {
       this.isScanningForMissingRepositories = false
+    }
+
+    if (kept.size !== keptCount) {
+      setStringArray(KeptMissingRepositoriesKey, [...kept])
+    }
+
+    // Don't replace a banner that may need the user's attention, such as
+    // one about conflicts. The removals are logged either way.
+    if (removed.length > 0 && this.currentBanner === null) {
+      this._setBanner({
+        type: BannerType.RemovedMissingRepositories,
+        paths: removed.map(r => r.path),
+        onUndo: () => this.restoreRemovedRepositories(removed),
+      })
+    }
+  }
+
+  /**
+   * Add back repositories removed because their folder no longer exists. They
+   * are added as missing so that the user can locate them if they've been
+   * moved, and won't be removed again until their folder is back.
+   */
+  private async restoreRemovedRepositories(
+    repositories: ReadonlyArray<Repository>
+  ) {
+    const kept = new Set(getStringArray(KeptMissingRepositoriesKey))
+
+    try {
+      for (const repository of repositories) {
+        const added = await this.repositoriesStore.addRepository(
+          repository.path,
+          repository.gitDir,
+          { missing: true }
+        )
+
+        if (repository.alias !== null) {
+          await this.repositoriesStore.updateRepositoryAlias(
+            added,
+            repository.alias
+          )
+        }
+
+        kept.add(repository.path)
+      }
+    } catch (e) {
+      this.emitError(e)
+    } finally {
+      setStringArray(KeptMissingRepositoriesKey, [...kept])
     }
   }
 

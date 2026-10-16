@@ -19,6 +19,7 @@ import { SuccessfulSquash } from './successful-squash'
 import { SuccessBanner } from './success-banner'
 import { ConflictsFoundBanner } from './conflicts-found-banner'
 import { OSVersionNoLongerSupportedBanner } from './os-version-no-longer-supported-banner'
+import { RemovedMissingRepositories } from './removed-missing-repositories'
 
 export function renderBanner(
   banner: Banner,
@@ -171,6 +172,15 @@ export function renderBanner(
       )
     case BannerType.OSVersionNoLongerSupported:
       return <OSVersionNoLongerSupportedBanner onDismissed={onDismissed} />
+    case BannerType.RemovedMissingRepositories:
+      return (
+        <RemovedMissingRepositories
+          key="removed-missing-repositories"
+          paths={banner.paths}
+          onDismissed={onDismissed}
+          onUndo={banner.onUndo}
+        />
+      )
     default:
       return assertNever(banner, `Unknown popup type: ${banner}`)
   }

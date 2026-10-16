@@ -17,9 +17,17 @@ export enum BannerType {
   SuccessfulReorder = 'SuccessfulReorder',
   ConflictsFound = 'ConflictsFound',
   OSVersionNoLongerSupported = 'OSVersionNoLongerSupported',
+  RemovedMissingRepositories = 'RemovedMissingRepositories',
 }
 
 export type Banner =
+  | {
+      readonly type: BannerType.RemovedMissingRepositories
+      /** paths of the repositories removed because their folder is gone */
+      readonly paths: ReadonlyArray<string>
+      /** callback to run when user clicks undo link in banner */
+      readonly onUndo: () => void
+    }
   | {
       readonly type: BannerType.SuccessfulMerge
       /** name of the branch that was merged into */
