@@ -3,13 +3,16 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-half);
+  justify-content: flex-end;
+  gap: var(--spacing);
   flex-shrink: 0;
   padding: var(--spacing-half) var(--spacing);
   background-color: var(--box-alt-background-color);
   border-bottom: var(--base-border);
 
   .button-component .octicon {
+    width: 12px;
+    height: 12px;
     margin-right: var(--spacing-half);
   }
 }
