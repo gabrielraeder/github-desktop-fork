@@ -36,6 +36,8 @@ import { PullRequestSuggestedNextAction } from '../models/pull-request'
 import { clamp } from '../lib/clamp'
 import { Emoji } from '../lib/emoji'
 import { PopupType } from '../models/popup'
+import { Shell } from '../lib/shells'
+import { ICustomIntegration } from '../lib/custom-integration'
 
 interface IRepositoryViewProps {
   readonly repository: Repository
@@ -83,6 +85,11 @@ interface IRepositoryViewProps {
    * opening the repository in an external editor.
    */
   readonly isExternalEditorAvailable: boolean
+
+  /** The user's terminal preferences, for opening the repository in one */
+  readonly selectedShell: Shell
+  readonly useCustomShell: boolean
+  readonly customShell: ICustomIntegration | null
 
   /** The name of the currently selected external editor */
   readonly externalEditorLabel?: string
@@ -577,6 +584,9 @@ export class RepositoryView extends React.Component<
             repository={this.props.repository}
             repositoryState={this.props.state}
             isExternalEditorAvailable={this.props.isExternalEditorAvailable}
+            selectedShell={this.props.selectedShell}
+            useCustomShell={this.props.useCustomShell}
+            customShell={this.props.customShell}
             dispatcher={this.props.dispatcher}
             pullRequestSuggestedNextAction={
               this.props.pullRequestSuggestedNextAction

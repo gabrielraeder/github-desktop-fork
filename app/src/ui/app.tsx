@@ -9,7 +9,9 @@ import {
   SelectionType,
   HistoryTabMode,
   CommitOptions,
+  ChangesSelectionKind,
 } from '../lib/app-state'
+import { RepositoryActionsBar } from './repository-actions/repository-actions-bar'
 import { Dispatcher } from './dispatcher'
 import { AppStore, GitHubUserStore, IssuesStore } from '../lib/stores'
 import { assertNever } from '../lib/fatal-error'
@@ -3391,11 +3393,52 @@ export class App extends React.Component<IAppProps, IAppState> {
         className={this.getDesktopAppContentsClassNames()}
       >
         {this.renderToolbar()}
+        {this.renderRepositoryActionsBar()}
         {this.renderBanner()}
         {this.renderRepository()}
         {this.renderPopups()}
         {this.renderDragElement()}
       </div>
+    )
+  }
+
+  /**
+   * Quick actions for the selected repository. They're hidden while the
+   * "No local changes" view is shown, since it offers the same actions.
+   */
+  private renderRepositoryActionsBar() {
+    const selection = this.state.selectedState
+    if (selection === null || selection.type !== SelectionType.Repository) {
+      return null
+    }
+
+    const { repository, state } = selection
+    const { changesState } = state
+    const isShowingNoChanges =
+      state.selectedSection === RepositorySectionTab.Changes &&
+      changesState.workingDirectory.files.length === 0 &&
+      changesState.selection.kind !== ChangesSelectionKind.Stash
+
+    if (repository.missing || isShowingNoChanges) {
+      return null
+    }
+
+    return (
+      <RepositoryActionsBar
+        dispatcher={this.props.dispatcher}
+        repository={repository}
+        isExternalEditorAvailable={
+          this.state.useCustomEditor ||
+          this.state.selectedExternalEditor !== null
+        }
+        externalEditorLabel={this.externalEditorLabel}
+        selectedShell={this.state.selectedShell}
+        useCustomShell={this.state.useCustomShell}
+        customShell={this.state.customShell}
+        onOpenInExternalEditor={this.openInExternalEditor}
+        onShowRepository={this.showRepository}
+        onViewOnGitHub={this.viewOnGitHub}
+      />
     )
   }
 
@@ -4053,6 +4096,9 @@ export class App extends React.Component<IAppProps, IAppState> {
           isExternalEditorAvailable={
             state.useCustomEditor || state.selectedExternalEditor !== null
           }
+          selectedShell={state.selectedShell}
+          useCustomShell={state.useCustomShell}
+          customShell={state.customShell}
           externalEditorLabel={this.externalEditorLabel}
           resolvedExternalEditor={state.resolvedExternalEditor}
           onOpenInExternalEditor={this.onOpenInExternalEditor}

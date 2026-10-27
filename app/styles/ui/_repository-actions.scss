@@ -1,0 +1,43 @@
+// Quick actions for the selected repository, shown below the toolbar.
+.repository-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-half);
+  flex-shrink: 0;
+  padding: var(--spacing-half) var(--spacing);
+  background-color: var(--box-alt-background-color);
+  border-bottom: var(--base-border);
+
+  .button-component .octicon {
+    margin-right: var(--spacing-half);
+  }
+}
+
+// A button with a dropdown arrow to pick another terminal, shown as one
+// control.
+.open-in-shell-button {
+  display: inline-flex;
+  flex-shrink: 0;
+
+  .open-in-shell-main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+
+    .octicon {
+      margin-right: var(--spacing-half);
+    }
+  }
+
+  .open-in-shell-dropdown {
+    margin-left: -1px;
+    padding-left: var(--spacing-half);
+    padding-right: var(--spacing-half);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+
+    .octicon {
+      margin: 0;
+    }
+  }
+}

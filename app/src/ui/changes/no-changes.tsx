@@ -20,6 +20,9 @@ import {
 import { StashedChangesLoadStates } from '../../models/stash-entry'
 import { Dispatcher } from '../dispatcher'
 import { SuggestedActionGroup } from '../suggested-actions'
+import { OpenInShellButton } from '../repository-actions/open-in-shell-button'
+import { Shell } from '../../lib/shells'
+import { ICustomIntegration } from '../../lib/custom-integration'
 import { PreferencesTab } from '../../models/preferences'
 import { PopupType } from '../../models/popup'
 import {
@@ -81,6 +84,11 @@ interface INoChangesProps {
    * opening the repository in an external editor.
    */
   readonly isExternalEditorAvailable: boolean
+
+  /** The user's terminal preferences, for opening the repository in one */
+  readonly selectedShell: Shell
+  readonly useCustomShell: boolean
+  readonly customShell: ICustomIntegration | null
 
   /** The user's preference of pull request suggested next action to use **/
   readonly pullRequestSuggestedNextAction?: PullRequestSuggestedNextAction
@@ -289,6 +297,27 @@ export class NoChanges extends React.Component<
       `Open the repository page on GitHub in your browser`,
       undefined,
       this.onViewOnGitHubClicked
+    )
+  }
+
+  private renderOpenInShell() {
+    return (
+      <div className="suggested-action">
+        <div className="text-wrapper">
+          <h2>Open the repository in a terminal</h2>
+          <p className="description">
+            Use the arrow to pick PowerShell, Git Bash, Command Prompt or
+            another installed terminal
+          </p>
+        </div>
+        <OpenInShellButton
+          dispatcher={this.props.dispatcher}
+          path={this.props.repository.path}
+          selectedShell={this.props.selectedShell}
+          useCustomShell={this.props.useCustomShell}
+          customShell={this.props.customShell}
+        />
+      </div>
     )
   }
 
@@ -745,6 +774,7 @@ export class NoChanges extends React.Component<
           {this.renderOpenInExternalEditor()}
           {this.renderShowInFileManager()}
           {this.renderViewOnGitHub()}
+          {this.renderOpenInShell()}
         </SuggestedActionGroup>
       </>
     )
