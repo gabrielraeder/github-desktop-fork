@@ -16,6 +16,12 @@ interface IRepositoryActionsBarProps {
   readonly dispatcher: Dispatcher
   readonly repository: Repository
 
+  /**
+   * The width of the sidebar, so that the actions line up with the content
+   * next to it (and the branch dropdown in the toolbar above).
+   */
+  readonly sidebarWidth: number
+
   readonly isExternalEditorAvailable: boolean
   /** The name of the user's editor, if known */
   readonly externalEditorLabel?: string
@@ -49,6 +55,9 @@ export class RepositoryActionsBar extends React.Component<IRepositoryActionsBarP
     return (
       <div
         className="repository-actions-bar"
+        style={{
+          paddingLeft: `calc(${this.props.sidebarWidth}px + var(--spacing))`,
+        }}
         role="toolbar"
         aria-label="Repository actions"
       >

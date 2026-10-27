@@ -3427,6 +3427,7 @@ export class App extends React.Component<IAppProps, IAppState> {
       <RepositoryActionsBar
         dispatcher={this.props.dispatcher}
         repository={repository}
+        sidebarWidth={clamp(this.state.sidebarWidth)}
         isExternalEditorAvailable={
           this.state.useCustomEditor ||
           this.state.selectedExternalEditor !== null
